@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PickleTime 🥒 — Plan pickleball games</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>🥒 PickleTime</h1>
+    <p class="tagline">Schedule games, record scores, crown a champ.</p>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="setup">Setup</button>
+    <button class="tab-btn" data-tab="schedule">Schedule</button>
+    <button class="tab-btn" data-tab="standings">Standings</button>
+  </nav>
+
+  <main>
+    <!-- SETUP -->
+    <section id="setup" class="tab-panel active">
+      <h2>1. Players</h2>
+      <p class="hint">Add everyone playing today (2+ for singles, 4+ for doubles).</p>
+      <div id="playerList" class="player-list"></div>
+      <button id="addPlayerBtn" class="secondary-btn">+ Add player</button>
+
+      <h2>2. Format</h2>
+      <div class="format-options">
+        <label class="radio-card">
+          <input type="radio" name="format" value="singles" checked />
+          <span class="radio-title">🎾 Singles</span>
+          <span class="radio-desc">Round robin — everyone plays everyone once.</span>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="format" value="doubles" />
+          <span class="radio-title">👥 Doubles (Americano)</span>
+          <span class="radio-desc">Partners &amp; opponents rotate every game.</span>
+        </label>
+      </div>
+
+      <div id="doublesOptions" class="doubles-options hidden">
+        <label for="numGames">Number of games to schedule</label>
+        <input type="number" id="numGames" min="1" max="50" value="8" />
+        <p class="hint" id="perPlayerHint"></p>
+      </div>
+
+      <button id="generateBtn" class="primary-btn">Generate schedule →</button>
+      <p id="setupError" class="error-msg"></p>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section id="schedule" class="tab-panel">
+      <div class="panel-head">
+        <h2>Schedule</h2>
+        <button id="resetBtn" class="danger-btn">Reset all</button>
+      </div>
+      <p class="hint" id="scheduleMeta"></p>
+      <div id="gameList" class="game-list"></div>
+      <p id="noSchedule" class="empty-msg">No schedule yet. Head to <strong>Setup</strong> to create one.</p>
+    </section>
+
+    <!-- STANDINGS -->
+    <section id="standings" class="tab-panel">
+      <h2>Standings</h2>
+      <p class="hint" id="standingsHint"></p>
+      <div id="standingsTable"></div>
+      <p id="noStandings" class="empty-msg">Play some games to see the leaderboard.</p>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Data is saved in your browser. Share the link so friends can bookmark it.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
