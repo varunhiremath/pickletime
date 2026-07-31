@@ -1,0 +1,132 @@
+/* PickleTime design tokens — the single source of truth for the palette.
+ *
+ * Dark is the default: live-score and broadcast-scoreboard apps default dark
+ * because large numerals on near-black read as *sport*. But a phone in direct
+ * sunlight genuinely reads better in light mode at full brightness, and this app
+ * gets used on outdoor courts — so the light theme below is a real high-contrast
+ * design, not an inverted afterthought.
+ *
+ * Components should reference these semantic vars, never raw hex, so the whole
+ * app re-skins from this file. */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-deep: #0b1220;      /* app background — near-black navy */
+  --bg-surface: #151e2e;   /* match cards, table rows */
+  --bg-raised: #1e2a3c;    /* chips, inner fills, inputs */
+  --line: #2a3850;         /* hairlines, table rules */
+
+  /* Text */
+  --text-hi: #f1f5f9;      /* scores, names */
+  --text-lo: #8a9ab0;      /* labels, metadata */
+  --text-on-accent: #0b1220; /* on optic/gold — see the rule below */
+
+  /* Shadows read as depth on dark, so they stay subtle */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --optic-glow: 0 4px 16px rgba(215, 242, 5, 0.28);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg-deep: #f4f6f8;
+  --bg-surface: #ffffff;
+  --bg-raised: #e9edf2;
+  --line: #d3dae3;
+
+  --text-hi: #0b1220;
+  --text-lo: #5a6a7d;
+  --text-on-accent: #0b1220;
+
+  --shadow-card: 0 1px 2px rgba(11, 18, 32, 0.08);
+  --shadow-pop: 0 8px 24px rgba(11, 18, 32, 0.14);
+  --optic-glow: 0 4px 16px rgba(140, 158, 3, 0.3);
+}
+
+/* Accents.
+ *
+ * These sit outside the theme blocks where the value is genuinely identical, and
+ * are overridden in light mode only where contrast demands it. */
+:root {
+  --optic: #d7f205;  /* the pickleball — LIVE badge, winner rail, primary CTA */
+  --court: #1b9aaa;  /* court teal — links, secondary actions, charts */
+  --clay: #ff5c39;   /* losses, destructive, urgency */
+  --gold: #e7b94f;   /* 1st place only */
+
+  /* Player avatar colours — distinct at small sizes in both themes. */
+  --player-1: #1b9aaa;
+  --player-2: #ff5c39;
+  --player-3: #a78bfa;
+  --player-4: #34d399;
+  --player-5: #f472b6;
+  --player-6: #fbbf24;
+  --player-7: #60a5fa;
+  --player-8: #fb923c;
+}
+
+/* Light-mode accent corrections.
+ *
+ * --optic and --gold are very light: they work as *fills* under dark text in both
+ * themes, but as text or thin strokes on a white surface they fail contrast. The
+ * -ink variants are the darkened forms to use for text/icons/borders. */
+:root[data-theme='light'] {
+  --court: #12707c;
+  --clay: #d63e1c;
+  --optic-ink: #657202; /* 4.89:1 on --bg-deep — see styles/tokens.test.js */
+  --gold-ink: #8a6b12;
+}
+:root,
+:root[data-theme='dark'] {
+  --optic-ink: var(--optic);
+  --gold-ink: var(--gold);
+}
+
+/* Layout scale */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-micro: 140ms;
+  --dur-standard: 240ms;
+  --dur-enter: 340ms;
+  --dur-flip: 460ms;
+}
+
+/* THE COLOUR RULE, in code so it cannot be "fixed" into a contrast failure:
+ * text on --optic or --gold is always --text-on-accent (near-black), never white.
+ * Use these classes rather than hand-rolling the pairing. */
+.on-optic {
+  background: var(--optic);
+  color: var(--text-on-accent);
+}
+.on-gold {
+  background: var(--gold);
+  color: var(--text-on-accent);
+}
+
+/* Every number that can change gets tabular figures. Proportional digits make
+ * live-updating scoreboards and standings columns visibly jitter. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}

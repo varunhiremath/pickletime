@@ -1,0 +1,88 @@
+@import './styles/tokens.css';
+@import './styles/animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Self-hosted variable fonts (latin subset, ~83KB total). Self-hosted rather
+ * than CDN-linked so the app renders correctly offline and inside the APK's
+ * WebView, where there is no network to fall back on.
+ *
+ * Paths are relative on purpose: Vite rewrites them through the configured base
+ * ('/pickletime/' on Pages, '/' in the Capacitor WebView). An absolute /fonts/
+ * URL would 404 on Pages. */
+@font-face {
+  font-family: 'Archivo';
+  src: url('./assets/fonts/archivo-latin-var.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('./assets/fonts/inter-latin-var.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-hi);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* Score entry is tap-heavy; stop double-tap zoom fighting the buttons. */
+    touch-action: manipulation;
+    overscroll-behavior-y: none;
+  }
+
+  /* Scores and table figures. Archivo has genuine tabular numerals, which stop
+   * live-updating columns from jittering as digits change. */
+  .font-display {
+    font-family: 'Archivo', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Never let a number input show spinners — the app uses its own controls. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  ::selection {
+    background: var(--optic);
+    color: var(--text-on-accent);
+  }
+}
+
+@layer utilities {
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Hide scrollbars on horizontal chip rows without losing scrollability. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

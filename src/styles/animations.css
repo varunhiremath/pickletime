@@ -1,0 +1,79 @@
+/* Motion. Transform/opacity only, so everything stays on the compositor.
+ * Anything here can be switched off by the user (settingsStore.effects) or by
+ * the OS (prefers-reduced-motion, honoured at the bottom of this file). */
+
+@keyframes pt-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.a-fade-up { animation: pt-fade-up var(--dur-enter) var(--ease-out) both; }
+
+@keyframes pt-pop {
+  0% { transform: scale(0.9); opacity: 0; }
+  60% { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.a-pop { animation: pt-pop var(--dur-enter) var(--ease-spring) both; }
+
+/* The LIVE badge. This pulse is a real connection indicator: the component
+ * removes the class when the realtime socket drops, so a steady dot means
+ * "not receiving updates" rather than "decorative dot that stopped". */
+@keyframes pt-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.a-pulse { animation: pt-pulse 2s var(--ease-out) infinite; }
+
+/* Score digit roll, used when a score changes under you. */
+@keyframes pt-roll-in {
+  from { opacity: 0; transform: translateY(-0.35em); }
+  to { opacity: 1; transform: none; }
+}
+.a-roll { animation: pt-roll-in var(--dur-standard) var(--ease-out) both; }
+
+/* Particle burst on a match-winning score. */
+@keyframes pt-burst {
+  0% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.3) rotate(var(--rot)); }
+}
+
+/* Winner rail sweeping in beside the winning team. */
+@keyframes pt-rail {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+.a-rail { animation: pt-rail var(--dur-standard) var(--ease-out) both; transform-origin: center; }
+
+/* Standings row highlight when a result moves someone. */
+@keyframes pt-flash {
+  0% { background-color: color-mix(in srgb, var(--optic) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+.a-flash { animation: pt-flash 1.2s var(--ease-out) both; }
+
+/* Skeleton shimmer while the first sync lands. */
+@keyframes pt-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.a-shimmer {
+  background: linear-gradient(90deg, var(--bg-surface) 25%, var(--bg-raised) 50%, var(--bg-surface) 75%);
+  background-size: 200% 100%;
+  animation: pt-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .a-fade-up,
+  .a-pop,
+  .a-pulse,
+  .a-roll,
+  .a-rail,
+  .a-flash,
+  .a-shimmer {
+    animation: none !important;
+  }
+  /* FLIP reordering is driven by inline transitions, so kill those too. */
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
