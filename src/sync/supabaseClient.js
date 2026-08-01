@@ -7,10 +7,44 @@ import { createClient } from '@supabase/supabase-js';
 // (supabase/policies.sql) is what actually protects the data. The service_role
 // key must never appear here or anywhere else in this repo.
 
-const url = import.meta.env.VITE_SUPABASE_URL?.trim();
+const rawUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
-/** True when a server is configured. False → the app runs single-device. */
+/**
+ * The dashboard address is not the API address, and pasting the former is the
+ * easy mistake — it is what's in the browser bar when you go looking for the
+ * key. It happened once in this project's own deploy: the build succeeded, the
+ * app loaded, and it silently reached nothing.
+ *
+ * The project ref is right there in the dashboard URL, so the mistake is
+ * detectable. Report it loudly rather than spending an afternoon wondering why
+ * scores aren't syncing.
+ */
+export function describeUrlProblem(value) {
+  if (!value) return null;
+  const dashboard = value.match(/supabase\.com\/dashboard\/project\/([a-z0-9]+)/i);
+  if (dashboard) {
+    return (
+      `VITE_SUPABASE_URL is the dashboard address, not the API address. ` +
+      `Use https://${dashboard[1]}.supabase.co instead.`
+    );
+  }
+  if (!/^https:\/\/[A-Za-z0-9.-]+\/?$/.test(value)) {
+    return `VITE_SUPABASE_URL should be a bare host like https://<project-ref>.supabase.co (got "${value}").`;
+  }
+  return null;
+}
+
+export const urlProblem = describeUrlProblem(rawUrl);
+const url = urlProblem ? null : rawUrl;
+
+if (urlProblem) {
+  // Surfaced in the UI too (see components/layout/ServerNotice.jsx); logging it
+  // means it is also findable in a phone's remote console.
+  console.error(`[PickleTime] ${urlProblem}`);
+}
+
+/** True when a *usable* server is configured. False → the app runs single-device. */
 export function isSupabaseConfigured() {
   return Boolean(url && anonKey);
 }

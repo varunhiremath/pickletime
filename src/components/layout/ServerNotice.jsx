@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import useSessionStore from '../../store/sessionStore.js';
 import { CONNECTION } from '../../sync/backend.js';
+import { urlProblem } from '../../sync/supabaseClient.js';
 
 /**
  * Shown only when the server is configured but something is wrong with it.
@@ -13,6 +14,13 @@ import { CONNECTION } from '../../sync/backend.js';
 export default function ServerNotice() {
   const { remote, connection, bootError, identity } = useSessionStore();
 
+  // A misconfigured URL means `remote` is false — the app fell back to
+  // single-device mode — so this check comes before the `remote` guard, or the
+  // one problem worth shouting about would be the one that stays silent.
+  if (urlProblem) {
+    return <Notice message={urlProblem} />;
+  }
+
   if (!remote) return null;
   const authError = identity?.authError ?? null;
   const problem = bootError || authError;
@@ -22,6 +30,10 @@ export default function ServerNotice() {
     ? problem
     : "Can't reach the server — showing the last data this phone downloaded. Scores you enter now may not reach everyone else.";
 
+  return <Notice message={message} />;
+}
+
+function Notice({ message }) {
   return (
     <div
       role="status"

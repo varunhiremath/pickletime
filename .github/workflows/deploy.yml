@@ -76,6 +76,29 @@ jobs:
             echo "See docs/SETUP_SUPABASE.md."
             exit 1
           fi
+
+          # The dashboard address is not the API address, and pasting the former
+          # is the easy mistake — it is what is in the browser bar when you go
+          # looking for the key. It shipped once already: the build succeeded,
+          # the app loaded, and it silently reached nothing.
+          case "$URL" in
+            *supabase.com/dashboard*)
+              ref=$(echo "$URL" | sed -E 's#.*/project/([a-z0-9]+).*#\1#')
+              echo "::error::VITE_SUPABASE_URL is the dashboard address, not the API address."
+              echo "  got:      $URL"
+              echo "  wanted:   https://${ref}.supabase.co"
+              echo "Update it under Settings → Environments → pickletime."
+              exit 1 ;;
+          esac
+
+          # An API URL is scheme + host, no path. This also permits a custom
+          # domain, while still rejecting anything with a path glued on.
+          if ! echo "$URL" | grep -qE '^https://[A-Za-z0-9.-]+/?$'; then
+            echo "::error::VITE_SUPABASE_URL should be a bare host like https://<project-ref>.supabase.co"
+            echo "  got: $URL"
+            exit 1
+          fi
+
           echo "Building against ${URL}"
 
       - run: npm run build
