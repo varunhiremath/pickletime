@@ -19,7 +19,38 @@ plus a lot more.
 - Five tabs, player pages, Courtside mode, settings.
 - CI: tests + build gate every PR; `main` deploys to Pages.
 
-## Sprint 2 — Supabase
+## 🟡 Sprint 2 — Supabase (code complete, awaiting live verification)
+
+Shared data. Everything below is written and building; the RLS policies and the
+cross-device realtime path still need to be run against a real project before this
+can be called done. See `docs/SETUP_SUPABASE.md`.
+
+- `supabase/schema.sql`, `policies.sql`, `functions.sql` — tables, row-level
+  security, and three RPCs (`create_club`, `claim_invite`, `submit_score`).
+- **`games` has no UPDATE policy and `score_events` has no write policies.** The
+  only way to write a score is `submit_score`, which appends to the audit log in
+  the same transaction — so the log cannot be bypassed, by anyone, including the
+  admin.
+- Anonymous sign-in, per-friend invite codes (admin-readable so a lost code can be
+  re-sent), revocation that cuts a device off on its next request.
+- `supabaseBackend.js` behind the existing `Backend` interface — no page changed.
+- Realtime `postgres_changes` (pulled forward from Sprint 3).
+- Reads are write-through cached to the Dexie mirror and fall back to it offline,
+  so connecting a server doesn't regress Sprint 1's offline behaviour.
+- Publish-a-local-club, with pure tested id remapping (`utils/publishPlan.js`).
+- Boot is now failure-proof: an unreachable or paused project falls back to cached
+  data with an honest banner instead of hanging on the splash screen.
+- `supabase/rls.test.mjs` — 25+ assertions to run against the live project.
+- Weekly keep-alive workflow (free projects pause after 7 days idle).
+
+### Superseded from the original plan
+
+`hashInviteCode()` is removed. Hashing the code in the browser and sending the
+digest is *worse* than sending the code: if the client sends the hash, the hash
+becomes the credential, so a leaked database hands an attacker something directly
+replayable. Codes now travel over TLS and are compared server-side.
+
+## Sprint 2 — original outline
 
 Shared data. This is the sprint that makes it a group app.
 

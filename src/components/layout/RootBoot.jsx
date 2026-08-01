@@ -36,7 +36,18 @@ export default function RootBoot() {
         // A failed import must never block the app — the worst case is that the
         // old data stays in localStorage and the user starts fresh.
       }
-      if (!cancelled) await refresh();
+
+      // Likewise the first load. If the server is unreachable or misconfigured,
+      // the store falls back to the local mirror and marks itself loaded anyway;
+      // an unhandled rejection here would leave the user on the splash screen
+      // indefinitely, which is exactly how a paused project used to fail.
+      if (!cancelled) {
+        try {
+          await refresh();
+        } catch (err) {
+          useSessionStore.setState({ loaded: true, bootError: err?.message ?? String(err) });
+        }
+      }
     })();
 
     const unsubscribe = listen();

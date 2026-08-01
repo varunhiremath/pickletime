@@ -52,12 +52,40 @@ when someone deep-links to Courtside.
 ### `src/sync/backend.js` — the seam
 
 Pages and stores talk to a **Backend**, never to Dexie or Supabase directly.
-`setBackend()` is called once in `main.jsx`. The interface (identity, reads, writes,
-realtime) is documented in full at the top of that file.
+`setBackend()` is called once in `main.jsx`, choosing on `isSupabaseConfigured()`.
+The interface (identity, reads, writes, realtime) is documented in full at the top of
+that file.
 
-- `localBackend.js` — everything in the local Dexie mirror. Ships in Sprint 1 and stays
-  as the no-server fallback.
-- `supabaseBackend.js` — Sprint 2. Same interface, so no page changes.
+- `localBackend.js` — everything in the local Dexie mirror. The fallback whenever no
+  project is configured, and a complete working app in its own right.
+- `supabaseBackend.js` — the shared backend. Same interface, so no page differs
+  between modes. Reads are write-through cached into Dexie and fall back to it when
+  the network fails; `subscribe()` opens a `postgres_changes` channel.
+- `rowMap.js` — snake_case ↔ camelCase translation, so nothing above the sync layer
+  knows what the columns are called. Pure and tested.
+- `supabaseClient.js` — client construction and anonymous sign-in.
+
+### Server (`supabase/`)
+
+`schema.sql` → `policies.sql` → `functions.sql`, applied in that order via the SQL
+editor. `docs/SETUP_SUPABASE.md` is the walkthrough.
+
+**Two absences in `policies.sql` are load-bearing, not oversights:**
+
+- `games` has **no UPDATE policy** (plus a `restrictive` tripwire that always fails),
+  so no client can write a score directly.
+- `score_events` has **no write policies at all**.
+
+The only writer is the `submit_score` RPC, which is `SECURITY DEFINER` and appends to
+`score_events` in the same transaction as the update. That is what makes the audit log
+impossible to bypass — including for the admin — and what makes "anyone can edit any
+score" safe rather than reckless.
+
+The RLS helpers `is_member()` / `is_admin()` **must** stay `SECURITY DEFINER` with
+`SET search_path = public`: a policy on `members` that queries `members` recurses
+forever, and a definer function with a mutable search path is a privilege-escalation
+vector. They also must keep `EXECUTE` granted to `authenticated`, because policy
+expressions are evaluated as the querying role.
 
 ### `src/db/db.js` — Dexie `PickleTimeDB`
 

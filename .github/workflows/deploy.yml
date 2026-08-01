@@ -47,6 +47,13 @@ jobs:
           node-version: 20
       - run: npm install --no-audit --no-fund
       - run: npm run build
+        env:
+          # Repository variables, not secrets — the anon key is designed to be
+          # public and ships inside the bundle. Row-level security protects the
+          # data. If these are unset the build still succeeds and the app runs
+          # in single-device mode. See docs/SETUP_SUPABASE.md.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

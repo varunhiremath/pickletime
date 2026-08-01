@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import BottomNav from './BottomNav.jsx';
+import ServerNotice from './ServerNotice.jsx';
 
 /**
  * The tabbed shell. Data loading lives in RootBoot (the parent route) so that
@@ -18,6 +19,7 @@ export default function AppLayout() {
       }}
     >
       <main className="mx-auto w-full max-w-md pb-28">
+        <ServerNotice />
         <Outlet />
       </main>
       <BottomNav />

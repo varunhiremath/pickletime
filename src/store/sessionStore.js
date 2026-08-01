@@ -16,13 +16,19 @@ const useSessionStore = create((set, get) => ({
   session: null,
   games: [],
   identity: null,
+  invites: [],
+  remote: false,
+  canPublish: false,
   connection: CONNECTION.LOCAL,
   pending: 0,
+  // Set when the first load failed outright (unreachable or misconfigured
+  // server). The UI says so plainly rather than showing an empty club.
+  bootError: null,
   // Games whose score changed since the last render, so Standings can flash the
   // rows that just moved.
   recentlyChanged: [],
 
-  /** Full reload from the backend. Safe to call often; it's a local read. */
+  /** Full reload from the backend. */
   async refresh() {
     const backend = getBackend();
     const [identity, club, members, sessions, active, pending] = await Promise.all([
@@ -34,14 +40,31 @@ const useSessionStore = create((set, get) => ({
       backend.pendingCount?.() ?? 0,
     ]);
 
+    // Admin-only extras. RLS returns nothing for a player, so a failure here
+    // must not take the whole refresh down with it.
+    const [invites, canPublish] = await Promise.all([
+      backend.listInvites?.().catch(() => []) ?? [],
+      backend.hasLocalClubToPublish?.().catch(() => false) ?? false,
+    ]);
+
+    // Keep whichever session the user has explicitly opened from History,
+    // instead of yanking them back to the live one on every change event.
+    const opened = get().session;
+    const keepOpened =
+      opened && opened.id !== active?.session?.id && sessions.some((s) => s.id === opened.id);
+    const shown = keepOpened ? await backend.getSession(opened.id) : active;
+
     set({
       loaded: true,
       identity,
       club,
       members,
       sessions,
-      session: active?.session ?? null,
-      games: active?.games ?? [],
+      invites,
+      canPublish,
+      remote: backend.kind === 'supabase',
+      session: shown?.session ?? null,
+      games: shown?.games ?? [],
       connection: backend.getConnection(),
       pending,
     });
@@ -83,7 +106,15 @@ const useSessionStore = create((set, get) => ({
   },
 
   isAdmin() {
+    // In single-device mode there is nobody to be an admin relative to, so the
+    // one person using the app gets full control.
+    if (!get().remote) return true;
     return get().identity?.role === 'admin';
+  },
+
+  /** The live invite for a member, if the admin has minted one. */
+  inviteFor(memberId) {
+    return get().invites.find((i) => i.memberId === memberId) ?? null;
   },
 
   /** The players in the current session, in roster order. */

@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import RootBoot from './components/layout/RootBoot.jsx';
 import AppLayout from './components/layout/AppLayout.jsx';
 import LoadingPage from './pages/LoadingPage.jsx';
+import JoinPage from './pages/JoinPage.jsx';
 import TodayPage from './pages/TodayPage.jsx';
 import MatchesPage from './pages/MatchesPage.jsx';
 import ScorePage from './pages/ScorePage.jsx';
@@ -18,6 +19,9 @@ export const router = createBrowserRouter(
       element: <RootBoot />,
       children: [
         { path: '/', element: <LoadingPage /> },
+        // Join sits outside AppLayout — a friend who hasn't claimed a code yet
+        // has no club, so the tabs would have nothing to show.
+        { path: '/join', element: <JoinPage /> },
         // Courtside is full-bleed: it sits outside AppLayout on purpose, so no
         // bottom nav competes with the scoreboard.
         { path: '/score/courtside', element: <CourtsidePage /> },

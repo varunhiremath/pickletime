@@ -5,7 +5,6 @@ import {
   format,
   normalizeInviteCode,
   isValidInviteCode,
-  hashInviteCode,
 } from './inviteCode.js';
 
 // Deterministic byte source so generated codes are predictable in tests.
@@ -114,32 +113,5 @@ describe('isValidInviteCode', () => {
   it('agrees with normalize', () => {
     expect(isValidInviteCode('pt 7q2k 9xr4')).toBe(true);
     expect(isValidInviteCode('nope')).toBe(false);
-  });
-});
-
-describe('hashInviteCode', () => {
-  it('produces 64 hex characters', async () => {
-    const hash = await hashInviteCode('PT-7Q2K-9XR4');
-    expect(hash).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it('is stable for the same code', async () => {
-    expect(await hashInviteCode('PT-7Q2K-9XR4')).toBe(await hashInviteCode('PT-7Q2K-9XR4'));
-  });
-
-  it('hashes the normalised form, so typing variants collapse together', async () => {
-    const canonical = await hashInviteCode('PT-7Q2K-9XR4');
-    expect(await hashInviteCode('pt7q2k9xr4')).toBe(canonical);
-    expect(await hashInviteCode(' 7q2k-9xr4 ')).toBe(canonical);
-  });
-
-  it('differs for different codes', async () => {
-    const a = await hashInviteCode('PT-7Q2K-9XR4');
-    const b = await hashInviteCode('PT-7Q2K-9XR5');
-    expect(a).not.toBe(b);
-  });
-
-  it('throws on an invalid code rather than hashing junk', async () => {
-    await expect(hashInviteCode('nope')).rejects.toThrow('Invalid invite code');
   });
 });

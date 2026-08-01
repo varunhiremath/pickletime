@@ -65,14 +65,12 @@ export function isValidInviteCode(input) {
   return normalizeInviteCode(input) !== null;
 }
 
-/**
- * SHA-256 of the *normalised* code, lowercase hex. The client hashes before
- * sending, and the server compares hashes, so a raw code never reaches storage.
- */
-export async function hashInviteCode(input) {
-  const normalized = normalizeInviteCode(input);
-  if (!normalized) throw new Error('Invalid invite code');
-  const data = new TextEncoder().encode(normalized);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+// Note: there is deliberately no client-side hashing here.
+//
+// An earlier draft hashed the code in the browser and sent the digest. That is
+// worse, not better: if the client sends the hash, the hash *is* the credential,
+// so a leaked database would hand an attacker something directly replayable.
+// The code now travels to claim_invite() over TLS and is compared server-side
+// (supabase/functions.sql). The client's only job is to tidy the typing above,
+// so a friend reading a code off a screen can't lose to a stray space or a
+// capital letter.
