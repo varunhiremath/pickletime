@@ -1,50 +1,76 @@
 # 🥒 PickleTime
 
-A tiny web app to help a small group of friends **schedule pickleball games, record scores, and run a tournament-style format** over the weekend.
+Schedule pickleball games, enter scores together, and watch the standings move.
 
-Built as a single-page app with plain HTML/CSS/JavaScript — no backend, no build step, no accounts. All data is saved locally in your browser.
+An installable app (PWA today, Android APK to follow) for a group of friends who play
+regularly. One person is the admin and sets up sessions; everyone can enter scores.
 
-## Features
+---
 
-- **Add players** — enter everyone playing today.
-- **Pick a format:**
-  - **Singles** → a round-robin where everyone plays everyone once (byes rotate fairly for odd numbers of players).
-  - **Doubles (Americano)** → the popular social format where **partners and opponents rotate every game**, and sit-outs rotate evenly. Perfect for 5–6 players on a single court.
-- **Record scores** for each game as you play.
-- **Live standings** — an auto-updating leaderboard ranked by wins, then point differential.
+## What it does
 
-## Usage
+- **Schedules** — singles round robin (everyone plays everyone once, byes rotate fairly)
+  or doubles **Americano** (partners and opponents rotate every game). Multiple courts
+  supported, so eight players on two nets play two games at once.
+- **Scoring** — a big two-sided scoreboard built for tapping while holding a paddle,
+  plus a full-screen **Courtside mode** you can prop against a bag and read from the
+  other side of the net.
+- **Standings** — a real league table: wins, losses, point differential, streaks, with
+  rows that animate into their new positions as results land.
+- **Player pages** — head-to-head record against everyone, and your record with each
+  partner.
+- **Works offline** — everything is stored on the device and the app opens instantly
+  with no signal, which is what courts usually have.
 
-Open `index.html` in any browser (desktop or phone), or host it for free (see below) and share the link with your group.
+## Status
 
-1. **Setup** tab — add player names, choose Singles or Doubles (and, for doubles, how many games to schedule).
-2. Tap **Generate schedule**.
-3. **Schedule** tab — enter each game's score as you finish; the winner is highlighted automatically.
-4. **Standings** tab — watch the leaderboard update in real time.
+**Sprint 1 of 5.** The app is complete and usable as a single-device PWA. Shared,
+multi-device data (Supabase) is Sprint 2 — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-Your players, schedule, and scores persist in the browser's `localStorage`, so you can close the tab and come back later.
+If you used the original PickleTime, your players, schedule and scores are **imported
+automatically** the first time you open this version.
 
-## Hosting on GitHub Pages (free)
+## Install
 
-1. Push this repo to GitHub (already done if you're reading this there).
-2. Go to **Settings → Pages**.
-3. Under **Build and deployment**, set **Source** to *Deploy from a branch*, pick the `main` branch and `/ (root)` folder, and save.
-4. After a minute your app will be live at `https://<username>.github.io/pickletime/`.
+Open the app in a browser and use **Add to Home Screen** — it installs like a native
+app and works offline. An Android APK will be published to Releases in Sprint 5;
+iPhone stays on the PWA.
 
-## Project structure
+## Develop
 
-| File | Purpose |
+```bash
+npm install
+npm run dev      # http://localhost:5173/pickletime/
+npm test         # vitest — pure logic
+npm run build    # production bundle
+```
+
+Regenerate the app icons after changing `public/icon.svg`:
+
+```bash
+node scripts/make-icons.mjs
+```
+
+## Deploying
+
+CI (`.github/workflows/deploy.yml`) runs the tests and the build on every PR, and
+publishes `main` to GitHub Pages.
+
+> **One-time setup:** GitHub → Settings → Pages → **Source: GitHub Actions**.
+> The old deploy-from-a-branch setting will not serve this build.
+
+## How it's put together
+
+| Path | What's in it |
 | --- | --- |
-| `index.html` | App layout and tabs |
-| `styles.css` | Styling (pickleball-court theme, mobile-first) |
-| `app.js` | Scheduling logic, score tracking, standings, and persistence |
+| `src/utils/` | Pure logic — scheduling, standings, invite codes, contrast. Every file has a co-located `*.test.js`. |
+| `src/sync/` | The backend seam. `localBackend.js` today; `supabaseBackend.js` slots in behind the same interface. |
+| `src/db/` | Dexie/IndexedDB local mirror and offline outbox. |
+| `src/pages/` | One file per route. |
+| `src/styles/tokens.css` | The palette. Single source of truth for both themes. |
+| `docs/` | Architecture, guidelines, roadmap. |
 
-## Ideas for later
-
-- Fixed-partner doubles round robin (teams stay together).
-- Knockout/bracket playoff after the round-robin stage.
-- Export results to CSV or share a summary image.
-- Track history across multiple weekends.
+Full map: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 

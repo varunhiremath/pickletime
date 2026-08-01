@@ -1,0 +1,162 @@
+-- PickleTime — schema
+--
+-- Run this FIRST, then policies.sql, then functions.sql.
+-- Safe to re-run: everything is IF NOT EXISTS / CREATE OR REPLACE.
+--
+-- Design notes worth keeping in mind when editing:
+--   * members.user_id is NULL until an invite is claimed. Postgres allows
+--     repeated NULLs in a UNIQUE constraint, which is exactly what we want:
+--     many unclaimed roster entries, but only one account per club.
+--   * Every foreign key cascades, so deleting a club or a session takes its
+--     derived rows with it. Standings are computed from games, so a partial
+--     delete would leave the table referencing players who no longer exist.
+--   * Scores are never written directly — see functions.sql submit_score().
+
+create extension if not exists pgcrypto;
+
+-- ---------------------------------------------------------------- clubs
+
+create table if not exists public.clubs (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null check (length(trim(name)) > 0),
+  created_at  timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------- members
+
+create table if not exists public.members (
+  id           uuid primary key default gen_random_uuid(),
+  club_id      uuid not null references public.clubs(id) on delete cascade,
+  name         text not null check (length(trim(name)) > 0),
+  -- NULL until the person claims their invite on a device.
+  user_id      uuid references auth.users(id) on delete set null,
+  role         text not null default 'player' check (role in ('admin', 'player')),
+  color_index  int  not null default 0,
+  created_at   timestamptz not null default now(),
+  -- One account per club. Repeated NULLs are permitted, so any number of
+  -- roster entries can sit unclaimed.
+  unique (club_id, user_id)
+);
+
+create index if not exists members_club_idx on public.members(club_id);
+create index if not exists members_user_idx on public.members(user_id);
+
+-- ---------------------------------------------------------------- invites
+
+-- One live invite per member. The code is stored readable so the admin can
+-- re-send it; policies.sql restricts SELECT on this table to club admins, so
+-- nobody else can read a code and claim a friend's identity.
+create table if not exists public.invites (
+  id          uuid primary key default gen_random_uuid(),
+  club_id     uuid not null references public.clubs(id) on delete cascade,
+  member_id   uuid not null unique references public.members(id) on delete cascade,
+  code        text not null check (length(code) >= 6),
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz,
+  claimed_at  timestamptz,
+  revoked     boolean not null default false
+);
+
+-- Codes are matched case-insensitively, so uniqueness has to be too.
+create unique index if not exists invites_code_key on public.invites(upper(code));
+create index if not exists invites_club_idx on public.invites(club_id);
+
+-- Brute-force throttle for claim_invite(). The code space is ~40 bits, which is
+-- not much against unlimited guessing, so attempts are counted per account.
+create table if not exists public.claim_attempts (
+  user_id       uuid primary key references auth.users(id) on delete cascade,
+  attempts      int not null default 0,
+  window_start  timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------- sessions
+
+create table if not exists public.sessions (
+  id          uuid primary key default gen_random_uuid(),
+  club_id     uuid not null references public.clubs(id) on delete cascade,
+  name        text not null default 'Session',
+  date        date not null default current_date,
+  format      text not null check (format in ('singles', 'doubles_americano')),
+  player_ids  uuid[] not null default '{}',
+  num_games   int  not null default 0,
+  courts      int  not null default 1 check (courts >= 1),
+  points_to   int  not null default 11 check (points_to >= 1),
+  -- The seed the schedule was generated from. Same seed, same schedule —
+  -- see src/utils/rng.js. bigint because it is an unsigned 32-bit value.
+  rng_seed    bigint not null default 0,
+  status      text not null default 'live' check (status in ('draft', 'live', 'final')),
+  created_by  uuid references public.members(id) on delete set null,
+  imported    boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists sessions_club_idx on public.sessions(club_id, created_at desc);
+
+-- ---------------------------------------------------------------- games
+
+create table if not exists public.games (
+  id          uuid primary key default gen_random_uuid(),
+  session_id  uuid not null references public.sessions(id) on delete cascade,
+  ordinal     int  not null,
+  round       int  not null default 1,
+  court       int  not null default 1,
+  team_a      uuid[] not null,
+  team_b      uuid[] not null,
+  byes        uuid[] not null default '{}',
+  score_a     int,
+  score_b     int,
+  played      boolean not null default false,
+  scored_by   uuid references public.members(id) on delete set null,
+  updated_at  timestamptz not null default now(),
+  unique (session_id, ordinal)
+);
+
+create index if not exists games_session_idx on public.games(session_id, ordinal);
+
+-- ---------------------------------------------------------------- score_events
+
+-- Append-only audit log. policies.sql grants no INSERT/UPDATE/DELETE to
+-- anybody, so the only writer is submit_score(), which is SECURITY DEFINER.
+-- That is what makes "anyone can edit any score" safe: every change is
+-- attributable and nothing can be rewritten after the fact.
+create table if not exists public.score_events (
+  id          uuid primary key default gen_random_uuid(),
+  game_id     uuid not null references public.games(id) on delete cascade,
+  member_id   uuid references public.members(id) on delete set null,
+  score_a     int,
+  score_b     int,
+  prev_a      int,
+  prev_b      int,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists score_events_game_idx
+  on public.score_events(game_id, created_at desc);
+
+-- ---------------------------------------------------------------- realtime
+
+-- Broadcast row changes on games so every phone reorders its standings the
+-- moment anyone scores. Wrapped because adding a table twice raises an error.
+do $$
+begin
+  alter publication supabase_realtime add table public.games;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.sessions;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.members;
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;

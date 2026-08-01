@@ -1,0 +1,116 @@
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs on every push and PR. Deploy depends on this passing.
+  #
+  # Deliberately builds WITHOUT the Supabase variables, which keeps proving that
+  # the no-server fallback still compiles — with no env vars the app runs in
+  # single-device mode rather than breaking.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      # Catches anything that breaks the bundle but not the unit tests —
+      # a bad import path, a missing asset, a broken PWA manifest.
+      - run: npm run build
+
+  # Build and deploy are separate jobs because a job may declare exactly ONE
+  # environment, and these need two different ones:
+  #
+  #   build  → `pickletime`, which holds VITE_SUPABASE_URL / _ANON_KEY.
+  #   deploy → `github-pages`, which actions/deploy-pages requires.
+  #
+  # Combining them silently breaks the app: `vars.*` only resolves repository
+  # variables plus the job's own environment, so a build pinned to github-pages
+  # reads the Supabase variables as empty strings, succeeds, and ships an app
+  # stuck in single-device mode that looks perfectly healthy.
+  build:
+    needs: test
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: pickletime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+
+      # Fail loudly rather than shipping a broken-but-green deploy. Shared
+      # scores are the entire point of the app; a build without these produces
+      # something that works fine on one phone and silently shares nothing.
+      - name: Require the Supabase variables
+        env:
+          URL: ${{ vars.VITE_SUPABASE_URL }}
+          KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          missing=""
+          [ -z "$URL" ] && missing="$missing VITE_SUPABASE_URL"
+          [ -z "$KEY" ] && missing="$missing VITE_SUPABASE_ANON_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing:$missing"
+            echo "Set them on the 'pickletime' environment:"
+            echo "  Settings → Environments → pickletime → Environment variables"
+            echo "(Repository-level variables also work. Environment variables are"
+            echo " only visible to a job that declares that same environment.)"
+            echo "See docs/SETUP_SUPABASE.md."
+            exit 1
+          fi
+          echo "Building against ${URL}"
+
+      - run: npm run build
+        env:
+          # Variables, not secrets: the anon/publishable key is designed to be
+          # public and ships inside the bundle. Row-level security protects the
+          # data. The service_role key must never appear here.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+
+      # Proves the credentials actually reached the bundle, rather than trusting
+      # that the build step read them.
+      - name: Confirm the bundle is wired to the server
+        env:
+          URL: ${{ vars.VITE_SUPABASE_URL }}
+        run: |
+          host=$(echo "$URL" | sed -E 's#https?://([^/]+).*#\1#')
+          if grep -rq "$host" dist/assets/*.js; then
+            echo "Bundle is pointed at $host."
+          else
+            echo "::error::Built bundle contains no reference to $host — it would run in single-device mode."
+            exit 1
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
