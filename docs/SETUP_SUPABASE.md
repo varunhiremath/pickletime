@@ -28,13 +28,17 @@ Order matters: policies reference tables, and the grants at the end of
 
 All three are safe to re-run, so if you get interrupted you can start over.
 
-## 3. Turn on anonymous sign-in
+## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**
 
 This is how a device gets an identity without anyone making an account. It is
 invisible in the app — no email, no password, nothing to forget — but it means
 permissions are real rather than pretend.
+
+> Nothing works without this. Every RPC and every read is gated on being signed
+> in, so with it off the app can't create a club, claim a code or record a score.
+> If you see *"Anonymous sign-ins are disabled for this project"*, this is the step.
 
 ## 4. Check realtime is on
 
@@ -52,7 +56,15 @@ scores.
 | Value | Where it goes |
 | --- | --- |
 | **Project URL** | `VITE_SUPABASE_URL` |
-| **anon / public key** | `VITE_SUPABASE_ANON_KEY` |
+| **Publishable key** (`sb_publishable_…`), or the legacy **anon** key | `VITE_SUPABASE_ANON_KEY` |
+
+> **The dashboard address is not the Project URL.** The dashboard looks like
+> `supabase.com/dashboard/project/abcdefgh…`; the API URL you need is
+> `https://abcdefgh….supabase.co` — the same project ref, different host.
+>
+> Either key format works. Supabase now issues **publishable** keys
+> (`sb_publishable_…`) in place of the older `anon` JWT; the env var keeps its
+> old name so existing setups don't break.
 
 For local development, copy `.env.example` to `.env` and fill both in.
 
@@ -124,7 +136,13 @@ few kilobytes — you will not come close.
 
 ## If something goes wrong
 
-**"Not signed in"** — anonymous sign-in isn't enabled. Step 3.
+**"Anonymous sign-ins are disabled for this project"** / **"Not signed in"** —
+step 3. This is the single most commonly missed step.
+
+**Stuck on the splash, or a red banner about reaching the server** — the app
+waits 5 seconds for sign-in and then opens on whatever it last downloaded, rather
+than hanging. So this means the project is unreachable, paused, or misconfigured;
+it is not the app failing to start.
 
 **Everything is empty, no errors** — usually `policies.sql` didn't run, or ran
 before `schema.sql`. Re-run both in order.
