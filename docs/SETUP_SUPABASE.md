@@ -68,9 +68,24 @@ scores.
 
 For local development, copy `.env.example` to `.env` and fill both in.
 
-For the deployed app, add them in GitHub:
-**Settings → Secrets and variables → Actions → Variables → New repository variable**,
-once for each name. The deploy workflow reads them at build time.
+For the deployed app, add them in GitHub under
+**Settings → Environments → `pickletime` → Environment variables** (create the
+environment if it doesn't exist), once for each name.
+
+> **The environment name matters.** A workflow job can declare exactly one
+> environment, and `${{ vars.X }}` only sees repository-level variables plus the
+> variables of *that* environment. `deploy.yml` therefore splits the work in two:
+> the **build** job runs in `pickletime` so it can read these, and a separate
+> **deploy** job runs in `github-pages` because `actions/deploy-pages` requires
+> it. Merging those back into one job would make the build read these as empty
+> strings and silently ship an app that shares nothing.
+>
+> Repository-level variables work too, and are visible to every job. Either is
+> fine; just don't put them in an environment whose name no job declares.
+
+The build fails loudly if the variables are missing or if the finished bundle
+doesn't reference your project, so a misconfigured deploy can't pass as a
+working one.
 
 > **On the two keys.** The **anon key is meant to be public** — it is compiled into
 > the JavaScript bundle and anyone can read it out of the deployed app. That is by
