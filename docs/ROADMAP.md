@@ -19,11 +19,27 @@ plus a lot more.
 - Five tabs, player pages, Courtside mode, settings.
 - CI: tests + build gate every PR; `main` deploys to Pages.
 
-## 🟡 Sprint 2 — Supabase (code complete, awaiting live verification)
+## ✅ Sprint 2 — Supabase (verified against a live project)
 
-Shared data. Everything below is written and building; the RLS policies and the
-cross-device realtime path still need to be run against a real project before this
-can be called done. See `docs/SETUP_SUPABASE.md`.
+Shared data. Everything below was executed against a real Supabase project, not just
+built. See `docs/SETUP_SUPABASE.md` to connect one.
+
+**Live results:** `supabase/rls.test.mjs` 35/35 · `supabase/realtime.test.mjs` 13/13 ·
+`supabase/backend.live.test.js` 22/22 · plus 229 unit tests and a clean build.
+
+Realtime delivery measured at a **median of 262ms** steady state (samples: 570, 248,
+261, 262ms). The first event on a freshly-opened channel is slower — ~1.5s while
+replication warms up — which is why the test measures the two separately rather than
+holding a cold channel to the steady-state bar.
+
+### The bug the live run caught
+
+`claim_invite` **raised** an exception on a bad code. Raising rolls the transaction
+back, and the rollback took the brute-force attempt counter with it — so only attempts
+that got *past* the code lookup were ever counted. Exactly backwards: guessing a
+40-bit code was effectively unlimited. It now returns `{ok:false, error}` so the
+transaction commits and the counter persists. This is precisely the class of bug that
+cannot show up in a unit test.
 
 - `supabase/schema.sql`, `policies.sql`, `functions.sql` — tables, row-level
   security, and three RPCs (`create_club`, `claim_invite`, `submit_score`).

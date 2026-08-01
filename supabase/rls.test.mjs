@@ -147,18 +147,19 @@ try {
   section('3. Claiming an invite');
 
   {
-    const { error } = await friend.c.rpc('claim_invite', { p_code: 'PT-0000-0000' });
-    check('an unknown code is rejected', Boolean(error));
+    const { data } = await friend.c.rpc('claim_invite', { p_code: 'PT-0000-0000' });
+    check('an unknown code is rejected', data?.ok === false, JSON.stringify(data));
   }
 
   {
     const { data, error } = await friend.c.rpc('claim_invite', { p_code: inviteCode });
-    check('the real code is accepted', !error && data?.member?.id === friendMemberId, error?.message);
+    check('the real code is accepted', !error && data?.ok === true && data?.member?.id === friendMemberId,
+      error?.message ?? JSON.stringify(data));
   }
 
   {
-    const { error } = await friend.c.rpc('claim_invite', { p_code: inviteCode });
-    check('the same code cannot be claimed twice', Boolean(error));
+    const { data } = await friend.c.rpc('claim_invite', { p_code: inviteCode });
+    check('the same code cannot be claimed twice', data?.ok === false);
   }
 
   {
@@ -276,16 +277,28 @@ try {
   section('7. Guessing is throttled');
 
   {
+    // Regression guard. This originally failed because claim_invite raised on a
+    // bad code, and the rollback took the attempt counter with it — so guessing
+    // was unlimited. The counter only survives if the function *returns*.
     const guesser = await anonUser('guesser');
-    let throttled = false;
+    let throttledAt = null;
     for (let i = 0; i < 14; i++) {
-      const { error } = await guesser.c.rpc('claim_invite', { p_code: `PT-ZZZZ-${String(i).padStart(4, '0')}` });
-      if (error?.message?.toLowerCase().includes('too many')) {
-        throttled = true;
+      const { data } = await guesser.c.rpc('claim_invite', {
+        p_code: `PT-ZZZZ-${String(i).padStart(4, '0')}`,
+      });
+      if (data?.error?.toLowerCase().includes('too many')) {
+        throttledAt = i + 1;
         break;
       }
     }
-    check('repeated bad guesses get throttled', throttled);
+    check('repeated bad guesses get throttled', throttledAt !== null,
+      throttledAt === null ? 'never throttled after 14 guesses' : '');
+    check('the throttle trips at the 11th attempt', throttledAt === 11,
+      throttledAt === null ? 'n/a' : `tripped at ${throttledAt}`);
+
+    // A rejection must still be a rejection, not a silent success.
+    const { data: after } = await guesser.c.rpc('claim_invite', { p_code: inviteCode });
+    check('a throttled account cannot claim even a valid code', after?.ok === false);
   }
 } catch (err) {
   failures.push(`threw: ${err.message}`);

@@ -192,7 +192,12 @@ export function createSupabaseBackend() {
       await ensureSignedIn();
       // The server compares the code — the client only tidies the typing. A
       // client that decided validity itself would be trivially bypassed.
+      //
+      // Rejections come back as {ok:false, error} rather than as a thrown
+      // Postgres error, because raising would roll back the attempt counter and
+      // silently disable the brute-force throttle. See supabase/functions.sql.
       const data = unwrap(await supabase.rpc('claim_invite', { p_code: code }));
+      if (!data?.ok) throw new Error(data?.error ?? 'That code did not work.');
 
       identityCache = null;
       const result = { club: clubFromRow(data.club), member: memberFromRow(data.member) };

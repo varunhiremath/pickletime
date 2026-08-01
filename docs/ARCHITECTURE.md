@@ -70,6 +70,27 @@ that file.
 `schema.sql` → `policies.sql` → `functions.sql`, applied in that order via the SQL
 editor. `docs/SETUP_SUPABASE.md` is the walkthrough.
 
+**Live tests** — these hit a real project, so they are deliberately outside `npm test`
+and never run in CI:
+
+| File | Run with | Covers |
+| --- | --- | --- |
+| `rls.test.mjs` | `node supabase/rls.test.mjs` | the security rules, via raw SQL |
+| `realtime.test.mjs` | `node supabase/realtime.test.mjs` | delivery latency, and that non-members receive nothing |
+| `backend.live.test.js` | `npm run test:live` | `supabaseBackend` end to end |
+
+The first two need `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` in the environment;
+`npm run test:live` reads `.env` through Vite and skips itself when unset.
+
+`backend.live.test.js` runs under `vitest.live.config.js` rather than plain node for two
+reasons: `supabaseClient.js` reads `import.meta.env`, which only exists under Vite, and
+Dexie needs an IndexedDB, supplied by `fake-indexeddb` in `supabase/live.setup.js`.
+
+**`claim_invite` returns `{ok:false, error}` instead of raising.** Not a style choice:
+raising rolls back the transaction, which silently discarded the brute-force attempt
+counter and left guessing unlimited. Any rejection that must persist a side effect has
+to return, not raise.
+
 **Two absences in `policies.sql` are load-bearing, not oversights:**
 
 - `games` has **no UPDATE policy** (plus a `restrictive` tripwire that always fails),

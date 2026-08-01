@@ -57,6 +57,18 @@ $$;
 --
 -- Throttled per account: the code space is ~40 bits, which is thin against
 -- unlimited guessing. Ten attempts per fifteen minutes.
+--
+-- WHY THIS RETURNS {ok:false, error} INSTEAD OF RAISING
+--
+-- An earlier version raised an exception for every rejection. That silently
+-- defeated the throttle: raising rolls the transaction back, and the rollback
+-- took the attempt counter with it. Only attempts that got *past* the code
+-- lookup were ever counted — exactly backwards — so guessing was effectively
+-- unlimited. Caught by supabase/rls.test.mjs.
+--
+-- Returning a value lets the transaction commit, so the counter persists.
+-- Genuinely exceptional conditions (not signed in) still raise, because there is
+-- no counter to preserve in that case.
 
 create or replace function public.claim_invite(p_code text)
 returns json
@@ -76,19 +88,19 @@ begin
   end if;
 
   -- --- throttle -------------------------------------------------
-  insert into public.claim_attempts (user_id, attempts, window_start)
-  values (v_uid, 0, now())
-  on conflict (user_id) do nothing;
-
-  update public.claim_attempts
-     set attempts     = case when window_start < now() - interval '15 minutes' then 1 else attempts + 1 end,
-         window_start = case when window_start < now() - interval '15 minutes' then now() else window_start end
-   where user_id = v_uid
-  returning attempts into v_attempts;
+  -- Single upsert so the count is atomic under concurrent attempts.
+  insert into public.claim_attempts as ca (user_id, attempts, window_start)
+  values (v_uid, 1, now())
+  on conflict (user_id) do update
+     set attempts     = case when ca.window_start < now() - interval '15 minutes'
+                             then 1 else ca.attempts + 1 end,
+         window_start = case when ca.window_start < now() - interval '15 minutes'
+                             then now() else ca.window_start end
+  returning ca.attempts into v_attempts;
 
   if v_attempts > 10 then
-    raise exception 'Too many attempts. Wait a few minutes and try again.'
-      using errcode = 'P0001';
+    return json_build_object('ok', false,
+      'error', 'Too many attempts. Wait a few minutes and try again.');
   end if;
 
   -- --- look the code up ----------------------------------------
@@ -97,19 +109,19 @@ begin
    where upper(code) = upper(trim(p_code));
 
   if not found then
-    raise exception 'That code is not valid.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'That code is not valid.');
   end if;
 
   if v_invite.revoked then
-    raise exception 'That code has been revoked.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'That code has been revoked.');
   end if;
 
   if v_invite.claimed_at is not null then
-    raise exception 'That code has already been used.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'That code has already been used.');
   end if;
 
   if v_invite.expires_at is not null and v_invite.expires_at < now() then
-    raise exception 'That code has expired.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'That code has expired.');
   end if;
 
   -- Already in this club on another roster entry? Claiming a second one would
@@ -118,7 +130,7 @@ begin
     select 1 from public.members
      where club_id = v_invite.club_id and user_id = v_uid
   ) then
-    raise exception 'You have already joined this club.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'You have already joined this club.');
   end if;
 
   -- --- claim ----------------------------------------------------
@@ -128,7 +140,7 @@ begin
   returning * into v_member;
 
   if not found then
-    raise exception 'That code is not valid.' using errcode = 'P0002';
+    return json_build_object('ok', false, 'error', 'That code is not valid.');
   end if;
 
   update public.invites
@@ -140,7 +152,8 @@ begin
 
   select * into v_club from public.clubs where id = v_invite.club_id;
 
-  return json_build_object('club', row_to_json(v_club), 'member', row_to_json(v_member));
+  return json_build_object('ok', true,
+    'club', row_to_json(v_club), 'member', row_to_json(v_member));
 end;
 $$;
 
