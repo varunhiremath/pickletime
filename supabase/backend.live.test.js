@@ -220,4 +220,49 @@ describeLive('supabaseBackend against the live project', () => {
   it('reports a live connection', () => {
     expect([CONNECTION.LIVE, CONNECTION.CONNECTING]).toContain(backend.getConnection());
   });
+
+  // Last, because it destroys the fixture everything above depends on.
+  describe('deleting the club', () => {
+    it('removes the club and cascades to its rows', async () => {
+      // Something to leave behind if the cascade were broken.
+      const { session } = await backend.createSession({
+        name: 'Doomed session',
+        format: FORMATS.SINGLES,
+        playerIds: [adminMemberId],
+        numGames: 1,
+        courts: 1,
+        pointsTo: 11,
+        seed: 7,
+      });
+
+      await backend.deleteClub();
+
+      const { data: clubs } = await supabase.from('clubs').select('id').eq('id', clubId);
+      expect(clubs).toEqual([]);
+
+      const { data: sessions } = await supabase.from('sessions').select('id').eq('id', session.id);
+      expect(sessions).toEqual([]);
+
+      const { data: games } = await supabase.from('games').select('id').eq('session_id', session.id);
+      expect(games).toEqual([]);
+
+      const { data: leftoverMembers } = await supabase
+        .from('members')
+        .select('id')
+        .eq('club_id', clubId);
+      expect(leftoverMembers).toEqual([]);
+
+      clubId = null; // afterAll has nothing left to clean up
+    });
+
+    it('leaves the caller with no club', async () => {
+      const identity = await backend.getIdentity();
+      expect(identity.clubId).toBeNull();
+      expect(await backend.getClub()).toBeNull();
+    });
+
+    it('refuses when there is no club to delete', async () => {
+      await expect(backend.deleteClub()).rejects.toThrow(/not in a club/i);
+    });
+  });
 });

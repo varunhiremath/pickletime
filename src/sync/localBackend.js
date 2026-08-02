@@ -128,6 +128,17 @@ export function createLocalBackend() {
       return { club, member: admin };
     },
 
+    /**
+     * Delete the whole club. In single-device mode that is the same thing as
+     * wiping local storage, since there is nowhere else the data exists.
+     */
+    async deleteClub() {
+      const club = await this.getClub();
+      if (!club) throw new Error('There is no club to delete.');
+      await clearLocalData();
+      emit({ type: 'reset' });
+    },
+
     async addMember({ name }) {
       const club = await this.getClub();
       if (!club) throw new Error('Create a club first.');
