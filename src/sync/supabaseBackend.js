@@ -349,6 +349,31 @@ export function createSupabaseBackend() {
       return { club, member };
     },
 
+    /**
+     * Delete the whole club, for everyone.
+     *
+     * Foreign keys cascade, so members, sessions, games and the score history go
+     * with it. Every other member's device loses access on its next request and
+     * lands back on the join screen — this is not a local action dressed up as a
+     * shared one, so the UI asks the admin to type the club name.
+     */
+    async deleteClub() {
+      const clubId = await requireClubId();
+      const { role } = await loadIdentity();
+      if (role !== ROLES.ADMIN) {
+        throw new Error('Only the club admin can delete the club.');
+      }
+
+      unwrap(await supabase.from('clubs').delete().eq('id', clubId));
+
+      // Drop the local mirror too, or the app would keep rendering a club the
+      // server no longer has.
+      await clearLocalData();
+      identityCache = null;
+      await loadIdentity({ force: true });
+      emit({ type: 'reset' });
+    },
+
     async addMember({ name }) {
       const clubId = await requireClubId();
       const count = await db.members.where('clubId').equals(clubId).count();

@@ -1,10 +1,10 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ChevronLeft, Monitor, Moon, Sun } from 'lucide-react';
 import Button from '../components/ui/Button.jsx';
 import useSettingsStore from '../store/settingsStore.js';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
-import { confirmDialog, toast } from '../store/uiStore.js';
+import { confirmDialog, promptDialog, toast } from '../store/uiStore.js';
 
 function Toggle({ label, hint, checked, onChange }) {
   return (
@@ -63,7 +63,57 @@ const THEME_OPTIONS = [
 
 export default function SettingsPage() {
   const settings = useSettingsStore();
+  const navigate = useNavigate();
   const refresh = useSessionStore((s) => s.refresh);
+  const club = useSessionStore((s) => s.club);
+  const members = useSessionStore((s) => s.members);
+  const isAdmin = useSessionStore((s) => s.isAdmin());
+
+  /**
+   * Deleting the club destroys data for everyone in it, not just this phone, so
+   * it asks for the club's name to be typed. A plain confirm is the right weight
+   * for "clear this device"; it is not the right weight for "erase nine other
+   * people's season".
+   */
+  const removeClub = async () => {
+    const others = Math.max(0, members.length - 1);
+    const ok = await confirmDialog({
+      title: `Delete "${club.name}"?`,
+      message:
+        `Every session, game and score is deleted, for everyone. ` +
+        (others > 0
+          ? `${others} other ${others === 1 ? 'person' : 'people'} lose access immediately and land back on the join screen. `
+          : '') +
+        'Invite codes stop working. This cannot be undone.',
+      confirmLabel: 'Continue',
+      danger: true,
+    });
+    if (!ok) return;
+
+    const typed = await promptDialog({
+      title: 'Type the club name to confirm',
+      message: `Enter "${club.name}" exactly.`,
+      placeholder: club.name,
+      confirmLabel: 'Delete forever',
+    });
+    if (typed == null) return;
+
+    // Forgiving on case and stray whitespace — the point is deliberate intent,
+    // not a typing test.
+    if (typed.trim().toLowerCase() !== club.name.trim().toLowerCase()) {
+      toast("That didn't match the club name — nothing was deleted.", { type: 'error' });
+      return;
+    }
+
+    try {
+      await getBackend().deleteClub();
+      await refresh();
+      toast('Club deleted.', { type: 'info' });
+      navigate('/club', { replace: true });
+    } catch (err) {
+      toast(err.message ?? 'Could not delete the club.', { type: 'error' });
+    }
+  };
 
   const wipe = async () => {
     const ok = await confirmDialog({
@@ -168,9 +218,26 @@ export default function SettingsPage() {
           >
             Danger zone
           </h2>
-          <Button variant="danger" full onClick={wipe}>
+
+          <Button variant="outline" full onClick={wipe}>
             Erase all data on this device
           </Button>
+          <p className="font-sans text-xs leading-relaxed" style={{ color: 'var(--text-lo)' }}>
+            Clears this phone only. If the club is on a server, everyone else keeps
+            their data and you can rejoin with a code.
+          </p>
+
+          {club && isAdmin && (
+            <>
+              <Button variant="danger" full onClick={removeClub} style={{ marginTop: 'var(--space-2)' }}>
+                Delete "{club.name}" for everyone
+              </Button>
+              <p className="font-sans text-xs leading-relaxed" style={{ color: 'var(--text-lo)' }}>
+                Deletes the club, its roster, every session and every score — for all
+                members, permanently.
+              </p>
+            </>
+          )}
         </section>
 
         <p className="pb-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
