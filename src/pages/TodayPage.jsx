@@ -8,8 +8,10 @@ import EmptyState from '../components/ui/EmptyState.jsx';
 import CountUp from '../components/fx/CountUp.jsx';
 import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import MatchCard from '../components/scoreboard/MatchCard.jsx';
+import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
-import { computeStandings, sessionProgress } from '../utils/standings.js';
+import { computeStandings } from '../utils/standings.js';
+import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 
 function StatTile({ label, value, tone = 'default' }) {
   const colors = {
@@ -46,26 +48,39 @@ export default function TodayPage() {
   const { club, session, games, members, identity } = useSessionStore();
   const players = useSessionStore((s) => s.sessionPlayers());
 
-  const progress = useMemo(() => sessionProgress(games), [games]);
-  const rows = useMemo(() => computeStandings(players, games), [players, games]);
+  const fixtures = useMemo(() => roundRobinGames(games), [games]);
+  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  const progress = bracket.rr;
+  const rows = useMemo(() => computeStandings(players, fixtures), [players, fixtures]);
   const me = rows.find((r) => r.id === identity?.memberId);
   const leader = rows[0]?.gp > 0 ? rows[0] : null;
 
-  // The game being played now: the first without a score.
-  const nowPlaying = useMemo(() => games.find((g) => !g.played) ?? null, [games]);
+  // What's on court: the next round-robin game without a score, and once those
+  // are done, the next knockout fixture that actually has two players in it. An
+  // empty semifinal is not something anyone can walk out and play.
+  const onCourt = useMemo(() => {
+    const next = fixtures.find((g) => !g.played);
+    if (next) return { game: next, teamA: next.teamA, teamB: next.teamB, label: null };
+    const m = bracket.matches.find((x) => x.ready && !x.played);
+    return m ? { game: m.game, teamA: m.teamA, teamB: m.teamB, label: m.label } : null;
+  }, [fixtures, bracket]);
 
   // The next fixture that involves me, after the one on court.
   const myNext = useMemo(() => {
-    if (!identity?.memberId) return null;
-    return (
-      games.find(
-        (g) =>
-          !g.played &&
-          g.id !== nowPlaying?.id &&
-          (g.teamA.includes(identity.memberId) || g.teamB.includes(identity.memberId))
-      ) ?? null
+    const meId = identity?.memberId;
+    if (!meId) return null;
+    const mine = (a, b) => a.includes(meId) || b.includes(meId);
+
+    const next = fixtures.find(
+      (g) => !g.played && g.id !== onCourt?.game?.id && mine(g.teamA, g.teamB)
     );
-  }, [games, identity?.memberId, nowPlaying?.id]);
+    if (next) return { game: next, teamA: next.teamA, teamB: next.teamB, label: null };
+
+    const m = bracket.matches.find(
+      (x) => x.ready && !x.played && x.game?.id !== onCourt?.game?.id && mine(x.teamA, x.teamB)
+    );
+    return m ? { game: m.game, teamA: m.teamA, teamB: m.teamB, label: m.label } : null;
+  }, [fixtures, bracket, identity?.memberId, onCourt?.game?.id]);
 
   const recent = useMemo(
     () => games.filter((g) => g.played).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 3),
@@ -110,7 +125,7 @@ export default function TodayPage() {
 
       <div className="flex flex-col gap-5 px-4">
         {/* Now playing */}
-        {nowPlaying ? (
+        {onCourt ? (
           <section className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <h2
@@ -119,13 +134,58 @@ export default function TodayPage() {
               >
                 On court
               </h2>
-              <Chip tone="optic">Game {nowPlaying.ordinal}</Chip>
+              <Chip tone={onCourt.label ? 'gold' : 'optic'}>
+                {onCourt.label ?? `Game ${onCourt.game.ordinal}`}
+              </Chip>
             </div>
-            <MatchCard game={nowPlaying} members={members} courts={session.courts} to="/score" />
-            <Link to="/score">
+            <MatchCard
+              game={onCourt.game}
+              members={members}
+              courts={session.courts}
+              teamA={onCourt.teamA}
+              teamB={onCourt.teamB}
+              label={onCourt.label}
+              to={`/score?game=${onCourt.game.id}`}
+            />
+            <Link to={`/score?game=${onCourt.game.id}`}>
               <Button variant="primary" size="lg" full>
                 Enter the score <ArrowRight size={18} />
               </Button>
+            </Link>
+          </section>
+        ) : bracket.complete ? (
+          <section className="flex flex-col gap-2">
+            <Podium
+              champion={bracket.champion}
+              runnerUp={bracket.runnerUp}
+              third={bracket.third}
+              members={members}
+            />
+            <Link to="/standings">
+              <Button variant="secondary" full>
+                See the final table
+              </Button>
+            </Link>
+          </section>
+        ) : bracket.enabled ? (
+          <section
+            className="flex flex-col items-center gap-2"
+            style={{
+              padding: 'var(--space-6)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--line)',
+            }}
+          >
+            <Trophy size={22} style={{ color: 'var(--gold-ink)' }} />
+            <p className="font-display text-lg font-bold" style={{ color: 'var(--text-hi)' }}>
+              Playoffs waiting
+            </p>
+            <p className="text-center font-sans text-sm" style={{ color: 'var(--text-lo)' }}>
+              A result is needed before the next tie can be set.
+            </p>
+            <Link to="/matches" className="mt-1">
+              <Button variant="secondary">Open the bracket</Button>
             </Link>
           </section>
         ) : (
@@ -180,7 +240,15 @@ export default function TodayPage() {
             >
               You play next
             </h2>
-            <MatchCard game={myNext} members={members} courts={session.courts} to="/matches" />
+            <MatchCard
+              game={myNext.game}
+              members={members}
+              courts={session.courts}
+              teamA={myNext.teamA}
+              teamB={myNext.teamB}
+              label={myNext.label}
+              to={`/score?game=${myNext.game.id}`}
+            />
           </section>
         )}
 

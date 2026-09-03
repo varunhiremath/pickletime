@@ -2,6 +2,7 @@ import { supabase, ensureSignedIn, currentUserId } from './supabaseClient.js';
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
+import { roundRobinGames } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
 import { generateInviteCode, normalizeInviteCode } from '../utils/inviteCode.js';
 import { buildPublishPlan } from '../utils/publishPlan.js';
@@ -496,13 +497,18 @@ export function createSupabaseBackend() {
 
     /* ---------------------------------------------------------- sessions */
 
-    async createSession({ name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed }) {
+    async createSession({
+      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs,
+    }) {
       const clubId = await requireClubId();
       const { memberId } = await loadIdentity();
 
       const usedSeed = seed ?? randomSeed();
       const sessionId = newId();
-      const generated = generateSchedule({ format, playerIds, numGames, courts, seed: usedSeed });
+      const generated = generateSchedule({
+        format, playerIds, numGames, courts, seed: usedSeed, playoffs,
+      });
+      const wantsPlayoffs = generated.some((g) => g.stage !== 'rr');
 
       const session = {
         id: sessionId,
@@ -516,6 +522,10 @@ export function createSupabaseBackend() {
         courts,
         pointsTo,
         rngSeed: usedSeed,
+        // Recorded from what was actually generated, not from what was asked
+        // for: a three-player singles session cannot fill a bracket, and the
+        // session should say so rather than promise playoffs that never appear.
+        playoffs: wantsPlayoffs,
         status: SESSION_STATUS.LIVE,
         createdBy: memberId,
         imported: false,
@@ -542,9 +552,13 @@ export function createSupabaseBackend() {
       const generated = generateSchedule({
         format: session.format,
         playerIds: session.playerIds,
-        numGames: session.numGames,
+        // The round-robin count, not the total: the four knockout fixtures are
+        // appended by the generator, so feeding the total back in would grow the
+        // round robin by four games on every reshuffle.
+        numGames: roundRobinGames(existing.games).length,
         courts: session.courts,
         seed: usedSeed,
+        playoffs: session.playoffs,
       });
 
       unwrap(await supabase.from('games').delete().eq('session_id', sessionId));
@@ -582,9 +596,21 @@ export function createSupabaseBackend() {
 
     /* ------------------------------------------------------------ scores */
 
-    async submitScore(gameId, scoreA, scoreB) {
+    /**
+     * @param teams  for a knockout fixture, who is playing it — the client
+     *   derives this from the standings (utils/bracket.js) and the RPC records
+     *   it alongside the score. Ignored for round-robin games, whose line-ups
+     *   come from the generated schedule.
+     */
+    async submitScore(gameId, scoreA, scoreB, teams = null) {
       const row = unwrap(
-        await supabase.rpc('submit_score', { p_game_id: gameId, p_a: scoreA, p_b: scoreB })
+        await supabase.rpc('submit_score', {
+          p_game_id: gameId,
+          p_a: scoreA,
+          p_b: scoreB,
+          p_team_a: teams?.teamA ?? null,
+          p_team_b: teams?.teamB ?? null,
+        })
       );
       const game = gameFromRow(row);
       await db.games.put(game);

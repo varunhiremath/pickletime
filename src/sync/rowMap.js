@@ -35,6 +35,7 @@ export function sessionFromRow(r) {
     courts: r.courts ?? 1,
     pointsTo: r.points_to ?? 11,
     rngSeed: Number(r.rng_seed ?? 0),
+    playoffs: Boolean(r.playoffs),
     status: r.status,
     createdBy: r.created_by ?? null,
     imported: Boolean(r.imported),
@@ -55,6 +56,7 @@ export function sessionToRow(s) {
     courts: s.courts ?? 1,
     points_to: s.pointsTo ?? 11,
     rng_seed: s.rngSeed ?? 0,
+    playoffs: Boolean(s.playoffs),
     status: s.status ?? 'live',
     created_by: s.createdBy ?? null,
     imported: Boolean(s.imported),
@@ -69,6 +71,10 @@ export function gameFromRow(r) {
     ordinal: r.ordinal,
     round: r.round,
     court: r.court ?? 1,
+    // Rows written before playoffs existed have no stage; they are round-robin
+    // fixtures by definition. See utils/bracket.js.
+    stage: r.stage ?? 'rr',
+    slot: r.slot ?? null,
     teamA: r.team_a ?? [],
     teamB: r.team_b ?? [],
     byes: r.byes ?? [],
@@ -87,6 +93,8 @@ export function gameToRow(g) {
     ordinal: g.ordinal,
     round: g.round,
     court: g.court ?? 1,
+    stage: g.stage ?? 'rr',
+    slot: g.slot ?? null,
     team_a: g.teamA,
     team_b: g.teamB,
     byes: g.byes ?? [],
@@ -121,6 +129,8 @@ export function scoreEventFromRow(r) {
     scoreB: r.score_b ?? null,
     prevA: r.prev_a ?? null,
     prevB: r.prev_b ?? null,
+    teamA: r.team_a ?? null,
+    teamB: r.team_b ?? null,
     createdAt: Date.parse(r.created_at) || 0,
   };
 }

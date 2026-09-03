@@ -168,6 +168,40 @@ describe('games', () => {
     expect(plan.games[0].teamB).toHaveLength(1);
   });
 
+  it('keeps an unplayed knockout fixture even though both sides are empty', () => {
+    // Semifinal rows are created with nobody in them — who plays them is decided
+    // by the round robin. The "lost a whole side" rule must not eat the bracket.
+    const plan = build({
+      games: [
+        ...local.games,
+        {
+          id: 'sf1', sessionId: 's1', ordinal: 3, round: 3, court: 1,
+          stage: 'sf', slot: 'sf1', teamA: [], teamB: [], byes: [],
+          scoreA: null, scoreB: null, played: false, scoredBy: null, updatedAt: 302,
+        },
+      ],
+    });
+    expect(plan.skipped).toEqual([]);
+    const sf = plan.games.find((g) => g.slot === 'sf1');
+    expect(sf).toBeDefined();
+    expect(sf.stage).toBe('sf');
+    expect(sf.teamA).toEqual([]);
+  });
+
+  it('still drops a PLAYED knockout game whose players are gone', () => {
+    const plan = build({
+      games: [
+        {
+          id: 'sf1', sessionId: 's1', ordinal: 1, round: 3, court: 1,
+          stage: 'sf', slot: 'sf1', teamA: ['nobody'], teamB: ['m2'], byes: [],
+          scoreA: 11, scoreB: 6, played: true, scoredBy: 'm1', updatedAt: 302,
+        },
+      ],
+    });
+    expect(plan.games).toHaveLength(0);
+    expect(plan.skipped).toEqual(['sf1']);
+  });
+
   it('renumbers ordinals contiguously after a drop', () => {
     const plan = build({
       games: [

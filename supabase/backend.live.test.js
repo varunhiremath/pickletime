@@ -222,6 +222,105 @@ describeLive('supabaseBackend against the live project', () => {
   });
 
   // Last, because it destroys the fixture everything above depends on.
+  // The playoff columns and the five-argument submit_score are a schema change,
+  // and a schema change that hasn't been applied to the project fails here and
+  // nowhere else — the unit tests happily pass against a database that has never
+  // heard of a bracket. This block is what proves the migration landed.
+  describe('the knockout stage', () => {
+    let poSessionId = null;
+    let bracketPlayers;
+
+    afterAll(async () => {
+      if (poSessionId) await supabase.from('sessions').delete().eq('id', poSessionId);
+    });
+
+    it('creates the four knockout fixtures alongside the round robin', async () => {
+      const extra = await Promise.all([
+        backend.addMember({ name: 'Third' }),
+        backend.addMember({ name: 'Fourth' }),
+      ]);
+      bracketPlayers = [adminMemberId, friendMemberId, extra[0].id, extra[1].id];
+
+      const { session, games } = await backend.createSession({
+        name: 'Live playoff session',
+        format: FORMATS.SINGLES,
+        playerIds: bracketPlayers,
+        courts: 1,
+        pointsTo: 11,
+        seed: 7,
+        playoffs: true,
+      });
+      poSessionId = session.id;
+
+      expect(session.playoffs).toBe(true);
+
+      // Four players → six round-robin games, plus the bracket.
+      const rr = games.filter((g) => g.stage === 'rr');
+      const ko = games.filter((g) => g.stage !== 'rr');
+      expect(rr).toHaveLength(6);
+      expect(ko.map((g) => g.slot)).toEqual(['sf1', 'sf2', 'bronze', 'final']);
+
+      // The line-ups are deliberately empty — nobody knows who plays a semifinal
+      // until the round robin is done.
+      for (const g of ko) {
+        expect(g.teamA).toEqual([]);
+        expect(g.teamB).toEqual([]);
+        expect(g.played).toBe(false);
+      }
+    });
+
+    it('stores the line-up when a knockout score is submitted', async () => {
+      const { games } = await backend.getSession(poSessionId);
+      const sf1 = games.find((g) => g.slot === 'sf1');
+
+      const teamA = [bracketPlayers[0]];
+      const teamB = [bracketPlayers[3]];
+      const saved = await backend.submitScore(sf1.id, 11, 6, { teamA, teamB });
+
+      expect(saved).toMatchObject({ scoreA: 11, scoreB: 6, played: true });
+      expect(saved.teamA).toEqual(teamA);
+      expect(saved.teamB).toEqual(teamB);
+
+      const events = await backend.listScoreEvents(sf1.id);
+      expect(events[0].teamA).toEqual(teamA);
+      expect(events[0].teamB).toEqual(teamB);
+    });
+
+    it('empties the line-up again when the score is cleared', async () => {
+      const { games } = await backend.getSession(poSessionId);
+      const sf1 = games.find((g) => g.slot === 'sf1');
+
+      const cleared = await backend.submitScore(sf1.id, null, null);
+      expect(cleared.played).toBe(false);
+      expect(cleared.teamA).toEqual([]);
+      expect(cleared.teamB).toEqual([]);
+    });
+
+    it('will not write another club\'s players into this club\'s bracket', async () => {
+      const { games } = await backend.getSession(poSessionId);
+      const sf2 = games.find((g) => g.slot === 'sf2');
+      const stranger = '00000000-0000-0000-0000-000000000001';
+
+      await expect(
+        backend.submitScore(sf2.id, 11, 5, { teamA: [bracketPlayers[1]], teamB: [stranger] })
+      ).rejects.toThrow(/not in this club/i);
+    });
+
+    it('leaves a round-robin line-up alone whatever the caller passes', async () => {
+      const { games } = await backend.getSession(poSessionId);
+      const rrGame = games.find((g) => g.stage === 'rr');
+      const original = { teamA: rrGame.teamA, teamB: rrGame.teamB };
+
+      const saved = await backend.submitScore(rrGame.id, 11, 4, {
+        teamA: [bracketPlayers[2]],
+        teamB: [bracketPlayers[3]],
+      });
+
+      expect(saved.teamA).toEqual(original.teamA);
+      expect(saved.teamB).toEqual(original.teamB);
+    });
+  });
+
   describe('deleting the club', () => {
     it('removes the club and cascades to its rows', async () => {
       // Something to leave behind if the cascade were broken.

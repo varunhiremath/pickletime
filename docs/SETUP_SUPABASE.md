@@ -28,6 +28,16 @@ Order matters: policies reference tables, and the grants at the end of
 
 All three are safe to re-run, so if you get interrupted you can start over.
 
+### Already have a project running?
+
+New columns and a changed RPC arrive with the app, and **the database has to be
+updated before the new build reaches anybody's phone** — otherwise creating a
+session and saving a score both fail. Either re-run `schema.sql` and
+`functions.sql` in that order, or paste the smaller
+`supabase/migrate-playoffs.sql`, which contains only the delta. Both are safe to
+re-run and neither touches existing data: every game already in the database is
+treated as a round-robin fixture, which is what it is.
+
 ## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**

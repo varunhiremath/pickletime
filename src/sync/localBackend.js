@@ -1,6 +1,7 @@
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
+import { roundRobinGames, isKnockout } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
 import { generateInviteCode } from '../utils/inviteCode.js';
 import {
@@ -218,7 +219,9 @@ export function createLocalBackend() {
 
     /* ---------- sessions ---------- */
 
-    async createSession({ name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed }) {
+    async createSession({
+      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs,
+    }) {
       const club = await this.getClub();
       if (!club) throw new Error('Create a club first.');
 
@@ -230,6 +233,7 @@ export function createLocalBackend() {
         numGames,
         courts,
         seed: usedSeed,
+        playoffs,
       });
 
       const session = {
@@ -244,6 +248,9 @@ export function createLocalBackend() {
         courts,
         pointsTo,
         rngSeed: usedSeed,
+        // What was generated, not what was asked for — a field too small for a
+        // bracket gets none, and the session should say so.
+        playoffs: generated.some((g) => g.stage !== 'rr'),
         status: SESSION_STATUS.LIVE,
         createdAt: now(),
       };
@@ -281,9 +288,13 @@ export function createLocalBackend() {
       const generated = generateSchedule({
         format: session.format,
         playerIds: session.playerIds,
-        numGames: session.numGames,
+        // The round-robin count, not the total — the generator appends the four
+        // knockout fixtures itself, so passing the total back in would grow the
+        // round robin by four games on every reshuffle.
+        numGames: roundRobinGames(existing.games).length,
         courts: session.courts,
         seed: usedSeed,
+        playoffs: session.playoffs,
       });
 
       const games = generated.map((g) => ({
@@ -328,14 +339,33 @@ export function createLocalBackend() {
      * The single write path for a score — mirroring the server, where a
      * `submit_score` RPC is the only way to touch a game, so the audit log can
      * never be bypassed. Passing null for both clears the score.
+     *
+     * `teams` names who played a knockout fixture. Those rows are created empty
+     * — the semifinalists aren't known until the round robin ends — so entering
+     * the score is also the act that records the line-up. Mirrors the server's
+     * submit_score(); see supabase/functions.sql for why.
      */
-    async submitScore(gameId, scoreA, scoreB) {
+    async submitScore(gameId, scoreA, scoreB, teams = null) {
       const game = await db.games.get(gameId);
       if (!game) throw new Error('Game not found.');
 
       const identity = await this.getIdentity();
       const played = scoreA != null && scoreB != null;
       const stamp = now();
+
+      // Round-robin line-ups come from the generated schedule and are never
+      // rewritten by a score. Clearing a knockout score un-decides the slot, so
+      // it goes back to being derived from the standings.
+      let { teamA, teamB } = game;
+      if (isKnockout(game)) {
+        if (!played) {
+          teamA = [];
+          teamB = [];
+        } else if (teams?.teamA?.length && teams?.teamB?.length) {
+          teamA = teams.teamA;
+          teamB = teams.teamB;
+        }
+      }
 
       const event = {
         id: newId(),
@@ -345,6 +375,8 @@ export function createLocalBackend() {
         scoreB,
         prevA: game.scoreA,
         prevB: game.scoreB,
+        teamA,
+        teamB,
         createdAt: stamp,
       };
 
@@ -353,6 +385,8 @@ export function createLocalBackend() {
         await db.games.update(gameId, {
           scoreA,
           scoreB,
+          teamA,
+          teamB,
           played,
           scoredBy: identity.memberId,
           updatedAt: stamp,

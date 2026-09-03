@@ -28,7 +28,10 @@
 //     revokeInvite(memberId)
 //     createSession(config)            -> { session, games }
 //     regenerateSchedule(sessionId, { seed }) -> { session, games }
-//     submitScore(gameId, scoreA, scoreB)     -> game
+//     submitScore(gameId, scoreA, scoreB, teams?) -> game
+//       `teams` is { teamA, teamB } and applies only to a knockout fixture,
+//       whose line-up is not known until the round robin ends. See
+//       utils/bracket.js and supabase/functions.sql.
 //     setSessionStatus(sessionId, status)     -> session
 //     deleteSession(sessionId)
 //

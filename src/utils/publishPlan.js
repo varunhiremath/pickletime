@@ -14,6 +14,8 @@
 // that existing row rather than to a new one, and they are excluded from the
 // members to insert.
 
+import { isKnockout } from './bracket.js';
+
 /**
  * @param local  { club, members, sessions, games, adminId }
  * @param clubId          the server club id from create_club()
@@ -76,7 +78,13 @@ export function buildPublishPlan(local, { clubId, adminMemberId, newId } = {}) {
     // A game whose session vanished, or that lost a whole side to a player who
     // is no longer on the roster, cannot be represented. Dropping it beats
     // uploading a fixture that renders as "— vs —".
-    if (!sessionId || teamA.length === 0 || teamB.length === 0) {
+    //
+    // An UNPLAYED knockout fixture is the deliberate exception: those rows are
+    // created with empty sides because nobody knows who plays a semifinal until
+    // the round robin is finished. Applying the rule to them would quietly
+    // publish a tournament with its whole bracket missing.
+    const emptyOk = isKnockout(g) && !g.played;
+    if (!sessionId || (!emptyOk && (teamA.length === 0 || teamB.length === 0))) {
       skipped.push(g.id);
       continue;
     }

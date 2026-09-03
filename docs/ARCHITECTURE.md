@@ -38,7 +38,8 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `generateSingles`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`. |
+| `schedule.js` | `FORMATS`, `generateSingles`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
+| `bracket.js` | `STAGE`, `SLOT`, `BRACKET_SLOTS`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -102,6 +103,11 @@ The only writer is the `submit_score` RPC, which is `SECURITY DEFINER` and appen
 impossible to bypass — including for the admin — and what makes "anyone can edit any
 score" safe rather than reckless.
 
+`submit_score` also takes the knockout line-up (`p_team_a` / `p_team_b`). Playoff rows
+are created empty, so entering their score is also what records who played — see
+"The knockout stage" below. It ignores those arguments for round-robin rows, whose
+line-ups belong to the generated schedule.
+
 The RLS helpers `is_member()` / `is_admin()` **must** stay `SECURITY DEFINER` with
 `SET search_path = public`: a policy on `members` that queries `members` recurses
 forever, and a definer function with a mutable search path is a privilege-escalation
@@ -117,7 +123,7 @@ A **cache plus an outbox**, not the source of truth (Supabase becomes that).
 | `clubs` | `id, name` |
 | `members` | `id, clubId, name, role, userId` |
 | `sessions` | `id, clubId, date, status, createdAt` |
-| `games` | `id, sessionId, [sessionId+ordinal], round, played, updatedAt` |
+| `games` | `id, sessionId, [sessionId+ordinal], round, played, updatedAt` (rows also carry `stage`/`slot`; not indexed — filtering happens in memory) |
 | `scoreEvents` | `id, gameId, memberId, createdAt` |
 | `outbox` | `++id, gameId, queuedAt` |
 | `meta` | `key` |
@@ -154,6 +160,48 @@ failure, not a review opinion.
 Every changing number carries `tabular-nums` (`.num`, `.font-display`). Proportional
 figures make live-updating columns jitter.
 
+## The knockout stage
+
+A session can end with a playoff: the top four seeds into semifinals, then a third-place
+game and a final. `sessions.playoffs` records that the session was set up with one.
+
+The bracket is **derived, not scheduled**. `generateSchedule({ playoffs: true })` appends
+four `games` rows — `sf1`, `sf2`, `bronze`, `final` — with **empty** `team_a`/`team_b`,
+because nobody knows who plays a semifinal until the round robin finishes.
+`resolveBracket(players, games)` works the line-ups out at render time from the
+round-robin standings (seed 1 v 4, seed 2 v 3) and from the earlier knockout results.
+
+Two rules make that safe:
+
+- **Seeding reads round-robin games only.** Counting playoff results towards the table
+  that decides the playoffs would be circular. `computeStandings` is therefore always
+  called with `roundRobinGames(games)` — on Standings, Today and inside `resolveBracket`.
+- **Stored beats derived.** Once a knockout game has a score, `submit_score` has written
+  its participants onto the row, and `resolveBracket` uses those. Correcting a
+  round-robin score months later reshuffles the seeds but must not rewrite a final that
+  has already been played. Clearing a knockout score empties the line-up again, so the
+  slot goes back to being derived.
+
+Singles only: the four seeds are individuals, so a semifinal between them is a singles
+match. There is no principled way to pair four individuals into two doubles teams, so
+Americano sessions are offered no bracket (`canRunPlayoffs`).
+
+## Scoring
+
+Scores are **typed, not tapped up**. Games do not finish in the order they were
+scheduled and are usually entered several at a time afterwards, so counting to eleven one
+tap at a time was the wrong gesture. `score/ScoreInput.jsx` is the numeric input;
+`MatchCard` in `editable` mode saves in place, so any fixture can be scored at any time
+from the Matches list. `/score?game=<id>` opens one specific game on the full scoreboard.
+Courtside mode keeps tap-to-increment — that screen is for live rally scoring.
+
+> **A component declared inside a render body is a new type every render, so React
+> remounts its subtree.** With an `<input>` in that subtree this is a real bug: the field
+> loses focus mid-keystroke and a half-typed score is wiped by any unrelated re-render
+> (a live score from another phone, a highlight timer). `MatchCard`'s `Side` and
+> `BracketSection`'s heading/fixture renderers are at module scope for exactly this
+> reason. Both were caught in a browser, not by the unit tests.
+
 ## Components worth knowing
 
 | Component | Why it exists |
@@ -163,6 +211,9 @@ figures make live-updating columns jitter.
 | `fx/Particles.jsx` | One-shot burst on a saved score. |
 | `scoreboard/Numeral.jsx` | The big tabular score, with a digit roll when it changes underneath you. |
 | `scoreboard/LiveBadge.jsx` | Connection state. The pulse stops when realtime drops, so it's a real indicator. |
+| `score/ScoreInput.jsx` | Typed score entry — numeric keypad, select-on-focus, empty means unscored (distinct from 0). |
+| `bracket/BracketSection.jsx` | Seeds, semifinals, third-place game, final; locked with a countdown until the round robin ends. |
+| `bracket/Podium.jsx` | Champion / runner-up / third. The one deliberately loud surface in the app. |
 | `ui/Modal.jsx` | Portals to `document.body` — an ancestor `transform` would otherwise trap a fixed overlay. |
 | `ui/UiHost.jsx` | Renders `uiStore` toasts/dialogs. Mounted once in `RootBoot`. |
 
