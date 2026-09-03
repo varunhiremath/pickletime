@@ -6,6 +6,8 @@
 //
 // All pure, so the formatting is tested rather than eyeballed.
 
+import { resolveBracket } from './bracket.js';
+
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -101,4 +103,105 @@ export function buildSessionShare({ session, games = [], members = [], url } = {
   if (url) lines.push('', `Full schedule: ${url}`);
 
   return lines.join('\n');
+}
+
+/**
+ * The message you post once the games are done: who won, how the playoffs went,
+ * and the full table.
+ *
+ * Same reasoning as buildSessionShare — there are no push notifications, so the
+ * group chat is where results actually land. Deliberately ordered result-first:
+ * the champion is the thing people want, and a table nobody scrolls to is a
+ * table nobody reads.
+ *
+ * No column alignment. Group chats render in proportional fonts, so padded
+ * columns arrive ragged; "1. Varun — 4W 0L, +24" reads correctly everywhere.
+ *
+ * @param session  the session row
+ * @param games    all of its games, round robin and knockout alike
+ * @param members  the club roster, for names
+ * @param players  who was in the session; derived from the roster if omitted
+ * @param url      link to the app
+ */
+export function buildResultsShare({ session, games = [], members = [], players, url } = {}) {
+  if (!session) return '';
+
+  const field =
+    players ??
+    (session.playerIds ?? [])
+      .map((id) => members.find((m) => m.id === id))
+      .filter(Boolean);
+
+  const bracket = resolveBracket(field, games);
+  const nameOf = (ids) =>
+    (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & ');
+
+  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
+    .filter(Boolean)
+    .join(', ');
+
+  const lines = [`🏆 ${session.name}${when ? ` — ${when}` : ''}`];
+
+  if (bracket.rr.played === 0) {
+    lines.push('', 'No games played yet.');
+    if (url) lines.push('', url);
+    return lines.join('\n');
+  }
+
+  // --- the result ---------------------------------------------------
+  if (bracket.complete) {
+    lines.push('');
+    lines.push(`🥇 ${bracket.champion.name}`);
+    if (bracket.runnerUp) lines.push(`🥈 ${bracket.runnerUp.name}`);
+    if (bracket.third) lines.push(`🥉 ${bracket.third.name}`);
+  } else {
+    const leader = bracket.standings[0];
+    if (leader?.gp > 0) {
+      lines.push('', `🥇 ${leader.name} — ${record(leader)}`);
+      // Naming a "winner" while a final is still outstanding would be wrong, so
+      // say which table they lead and that the playoffs are unfinished.
+      if (bracket.enabled) lines.push('(tops the round robin — playoffs still to finish)');
+    }
+  }
+
+  // --- the playoffs -------------------------------------------------
+  const playedKnockouts = bracket.matches.filter((m) => m.played);
+  if (playedKnockouts.length > 0) {
+    lines.push('', 'Playoffs');
+    for (const m of playedKnockouts) {
+      lines.push(`${m.label}: ${scoreLine(m, nameOf)}`);
+    }
+    const pending = bracket.matches.filter((m) => !m.played);
+    if (pending.length > 0) {
+      lines.push(`Still to play: ${pending.map((m) => m.label).join(', ')}`);
+    }
+  }
+
+  // --- the table ----------------------------------------------------
+  const table = bracket.standings.filter((r) => r.gp > 0);
+  if (table.length > 0) {
+    lines.push('', bracket.enabled ? 'Round robin' : 'Final table');
+    for (const row of table) {
+      lines.push(`${row.rank}. ${row.name} — ${record(row)}`);
+    }
+  }
+
+  lines.push('', `${bracket.rr.played} of ${bracket.rr.total} games played`);
+  if (url) lines.push('', `Full results: ${url}`);
+
+  return lines.join('\n');
+}
+
+const record = (row) =>
+  `${row.w}W ${row.l}L, ${row.diff > 0 ? '+' : ''}${row.diff}`;
+
+// Winner first — "Sam 11–9 Varun" reads as a result, "Varun 9–11 Sam" reads as
+// a typo. A knockout entered level has no winner, so it stays in fixture order.
+function scoreLine(match, nameOf) {
+  const { scoreA, scoreB, teamA, teamB } = match;
+  if (scoreA === scoreB) return `${nameOf(teamA)} ${scoreA}–${scoreB} ${nameOf(teamB)} (tied)`;
+  const aWon = scoreA > scoreB;
+  const win = aWon ? { ids: teamA, s: scoreA } : { ids: teamB, s: scoreB };
+  const lose = aWon ? { ids: teamB, s: scoreB } : { ids: teamA, s: scoreA };
+  return `${nameOf(win.ids)} ${win.s}–${lose.s} ${nameOf(lose.ids)}`;
 }

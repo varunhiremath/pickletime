@@ -1,14 +1,18 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, Snowflake } from 'lucide-react';
+import { Flame, Snowflake, Share2 } from 'lucide-react';
 import TopBar from '../components/layout/TopBar.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import FlipList from '../components/fx/FlipList.jsx';
 import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
+import Button from '../components/ui/Button.jsx';
 import { computeStandings } from '../utils/standings.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
+import { buildResultsShare } from '../utils/sessionShare.js';
+import { shareText } from '../utils/share.js';
+import { toast } from '../store/uiStore.js';
 
 // Four columns, not six. On a 390px phone, adding PF/PA squeezes the name column
 // until "Varun" renders as "Var…" — and a name you can't read is worse than a
@@ -57,6 +61,27 @@ export default function StandingsPage() {
     }
     return ids;
   }, [recentlyChanged, fixtures]);
+
+  /**
+   * Post the results to the group chat. Same reasoning as the session
+   * announcement on the Club tab: the app cannot send a notification, so the
+   * chat is where results actually reach people who weren't there.
+   */
+  const shareResults = async () => {
+    const text = buildResultsShare({
+      session,
+      games,
+      members,
+      players,
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    });
+    const outcome = await shareText(text);
+    if (outcome === 'copied') {
+      toast('Results copied — paste them into your group chat.', { type: 'success' });
+    } else if (outcome === 'failed') {
+      toast('Could not share the results.', { type: 'error' });
+    }
+  };
 
   if (!session || players.length === 0) {
     return (
@@ -193,6 +218,13 @@ export default function StandingsPage() {
               );
             })}
           </FlipList>
+
+          <div className="mt-5">
+            <Button variant={bracket.complete ? 'primary' : 'secondary'} full onClick={shareResults}>
+              <Share2 size={16} />
+              {bracket.complete ? 'Share the final results' : 'Share results so far'}
+            </Button>
+          </div>
 
           <p className="mt-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
             {bracket.enabled ? 'Round-robin table — this is what seeds the playoffs. ' : ''}

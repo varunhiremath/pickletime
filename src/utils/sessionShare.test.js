@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { formatSessionDate, formatSessionTime, buildSessionShare } from './sessionShare.js';
+import {
+  formatSessionDate,
+  formatSessionTime,
+  buildSessionShare,
+  buildResultsShare,
+} from './sessionShare.js';
 
 describe('formatSessionDate', () => {
   it('formats a date as a readable day', () => {
@@ -207,5 +212,151 @@ describe('buildSessionShare', () => {
   it('is empty with no session', () => {
     expect(buildSessionShare({ session: null })).toBe('');
     expect(buildSessionShare()).toBe('');
+  });
+});
+
+describe('buildResultsShare', () => {
+  const MEMBERS = [
+    { id: 'a', name: 'Ana' },
+    { id: 'b', name: 'Ben' },
+    { id: 'c', name: 'Cal' },
+    { id: 'd', name: 'Dee' },
+  ];
+
+  const SESSION = {
+    name: 'Sunday Social',
+    date: '2026-08-09',
+    startTime: '09:00',
+    format: 'singles',
+    playerIds: ['a', 'b', 'c', 'd'],
+    pointsTo: 11,
+  };
+
+  let n = 0;
+  const rr = (teamA, teamB, scoreA, scoreB) => ({
+    ordinal: ++n, round: 1, stage: 'rr', slot: null,
+    teamA, teamB, byes: [],
+    scoreA, scoreB, played: scoreA != null,
+  });
+  const ko = (slot, teamA, teamB, scoreA, scoreB) => ({
+    ordinal: ++n, round: 4, stage: slot === 'final' ? 'final' : slot === 'bronze' ? 'bronze' : 'sf',
+    slot, teamA, teamB, byes: [],
+    scoreA: scoreA ?? null, scoreB: scoreB ?? null, played: scoreA != null,
+  });
+
+  /** A finished four-player round robin: Ana > Ben > Cal > Dee. */
+  const roundRobin = () => {
+    n = 0;
+    return [
+      rr(['a'], ['b'], 11, 5),
+      rr(['a'], ['c'], 11, 5),
+      rr(['a'], ['d'], 11, 5),
+      rr(['b'], ['c'], 11, 6),
+      rr(['b'], ['d'], 11, 6),
+      rr(['c'], ['d'], 11, 7),
+    ];
+  };
+
+  const build = (games, extra = {}) =>
+    buildResultsShare({ session: SESSION, games, members: MEMBERS, ...extra });
+
+  it('leads with the date and the session name', () => {
+    expect(build(roundRobin())).toContain('🏆 Sunday Social — Sun 9 Aug, 9:00 am');
+  });
+
+  it('says so plainly when nothing has been played', () => {
+    n = 0;
+    const text = build([rr(['a'], ['b'], null, null)]);
+    expect(text).toContain('No games played yet.');
+    expect(text).not.toContain('🥇');
+  });
+
+  it('names the round-robin winner when there is no bracket', () => {
+    const text = build(roundRobin());
+    expect(text).toContain('🥇 Ana — 3W 0L, +18');
+    expect(text).toContain('Final table');
+    expect(text).not.toContain('Round robin');
+    expect(text).not.toContain('playoffs still to finish');
+  });
+
+  it('lists the whole table in order', () => {
+    const text = build(roundRobin());
+    const table = text.slice(text.indexOf('Final table'));
+    expect(table).toContain('1. Ana — 3W 0L, +18');
+    expect(table).toContain('4. Dee — 0W 3L, -15');
+    expect(table.indexOf('1. Ana')).toBeLessThan(table.indexOf('4. Dee'));
+  });
+
+  it('crowns the champion, runner-up and third once the final is played', () => {
+    const games = [
+      ...roundRobin(),
+      ko('sf1', ['a'], ['d'], 11, 4),
+      ko('sf2', ['b'], ['c'], 7, 11),
+      ko('bronze', ['d'], ['b'], 5, 11),
+      ko('final', ['a'], ['c'], 9, 11),
+    ];
+    const text = build(games);
+    expect(text).toContain('🥇 Cal');
+    expect(text).toContain('🥈 Ana');
+    expect(text).toContain('🥉 Ben');
+  });
+
+  it('writes each playoff result winner-first', () => {
+    const games = [
+      ...roundRobin(),
+      ko('sf1', ['a'], ['d'], 11, 4),
+      ko('sf2', ['b'], ['c'], 7, 11),
+      ko('bronze', ['d'], ['b'], 5, 11),
+      ko('final', ['a'], ['c'], 9, 11),
+    ];
+    const text = build(games);
+    // Team B won this one, so Cal must lead the line, not Ana.
+    expect(text).toContain('Final: Cal 11–9 Ana');
+    expect(text).toContain('Semifinal 1: Ana 11–4 Dee');
+    expect(text).toContain('Semifinal 2: Cal 11–7 Ben');
+    expect(text).toContain('3rd place: Ben 11–5 Dee');
+  });
+
+  it('does not call anyone the winner while the playoffs are unfinished', () => {
+    const games = [
+      ...roundRobin(),
+      ko('sf1', ['a'], ['d'], 11, 4),
+      ko('sf2'), ko('bronze'), ko('final'),
+    ];
+    const text = build(games);
+    expect(text).toContain('🥇 Ana — 3W 0L, +18');
+    expect(text).toContain('playoffs still to finish');
+    expect(text).toContain('Still to play: Semifinal 2, 3rd place, Final');
+    expect(text).not.toContain('🥈');
+  });
+
+  it('calls the table the round robin when a bracket exists', () => {
+    const games = [...roundRobin(), ko('sf1'), ko('sf2'), ko('bronze'), ko('final')];
+    expect(build(games)).toContain('Round robin');
+  });
+
+  it('counts only round-robin games in the progress line', () => {
+    // The four empty knockout rows must not read as "6 of 10 games played".
+    const games = [...roundRobin(), ko('sf1'), ko('sf2'), ko('bronze'), ko('final')];
+    expect(build(games)).toContain('6 of 6 games played');
+  });
+
+  it('appends the link when given one', () => {
+    const text = build(roundRobin(), { url: 'https://example.test/pickletime/' });
+    expect(text).toContain('Full results: https://example.test/pickletime/');
+  });
+
+  it('omits the link line entirely when there is no url', () => {
+    expect(build(roundRobin())).not.toContain('Full results:');
+  });
+
+  it('marks a knockout entered level rather than inventing a winner', () => {
+    const games = [...roundRobin(), ko('sf1', ['a'], ['d'], 11, 11)];
+    expect(build(games)).toContain('(tied)');
+  });
+
+  it('returns nothing without a session', () => {
+    expect(buildResultsShare({})).toBe('');
+    expect(buildResultsShare()).toBe('');
   });
 });
