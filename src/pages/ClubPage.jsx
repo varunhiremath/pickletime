@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone } from 'lucide-react';
 import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
+import { shareText } from '../utils/share.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
@@ -121,15 +122,9 @@ export default function ClubPage() {
       members,
       url: `${window.location.origin}${import.meta.env.BASE_URL}`,
     });
-    try {
-      if (navigator.share) await navigator.share({ text });
-      else {
-        await navigator.clipboard.writeText(text);
-        toast('Details copied — paste them into your group chat.', { type: 'success' });
-      }
-    } catch {
-      // Share sheet dismissed, or the clipboard was blocked. Neither is worth
-      // interrupting the user over.
+    const outcome = await shareText(text);
+    if (outcome === 'copied') {
+      toast('Details copied — paste them into your group chat.', { type: 'success' });
     }
   };
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Trophy } from 'lucide-react';
+import { ArrowRight, Trophy, Share2 } from 'lucide-react';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
@@ -12,6 +12,9 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { computeStandings } from '../utils/standings.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
+import { buildResultsShare } from '../utils/sessionShare.js';
+import { shareText } from '../utils/share.js';
+import { toast } from '../store/uiStore.js';
 
 function StatTile({ label, value, tone = 'default' }) {
   const colors = {
@@ -87,6 +90,22 @@ export default function TodayPage() {
     [games]
   );
 
+  const shareResults = async () => {
+    const text = buildResultsShare({
+      session,
+      games,
+      members,
+      players,
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    });
+    const outcome = await shareText(text);
+    if (outcome === 'copied') {
+      toast('Results copied — paste them into your group chat.', { type: 'success' });
+    } else if (outcome === 'failed') {
+      toast('Could not share the results.', { type: 'error' });
+    }
+  };
+
   if (!club) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-5 px-8 text-center">
@@ -161,6 +180,12 @@ export default function TodayPage() {
               third={bracket.third}
               members={members}
             />
+            {/* Offered right here because this is the moment it gets shared:
+                the final has just been scored and the champion is on screen. */}
+            <Button variant="primary" full onClick={shareResults}>
+              <Share2 size={16} />
+              Share the final results
+            </Button>
             <Link to="/standings">
               <Button variant="secondary" full>
                 See the final table
