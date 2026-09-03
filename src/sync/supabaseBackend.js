@@ -496,7 +496,7 @@ export function createSupabaseBackend() {
 
     /* ---------------------------------------------------------- sessions */
 
-    async createSession({ name, date, format, playerIds, numGames, courts, pointsTo, seed }) {
+    async createSession({ name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed }) {
       const clubId = await requireClubId();
       const { memberId } = await loadIdentity();
 
@@ -509,6 +509,7 @@ export function createSupabaseBackend() {
         clubId,
         name: name?.trim() || 'Session',
         date: date ?? new Date().toISOString().slice(0, 10),
+        startTime: startTime || null,
         format,
         playerIds,
         numGames: generated.length,

@@ -218,7 +218,7 @@ export function createLocalBackend() {
 
     /* ---------- sessions ---------- */
 
-    async createSession({ name, date, format, playerIds, numGames, courts, pointsTo, seed }) {
+    async createSession({ name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed }) {
       const club = await this.getClub();
       if (!club) throw new Error('Create a club first.');
 
@@ -237,6 +237,7 @@ export function createLocalBackend() {
         clubId: club.id,
         name: name?.trim() || 'Session',
         date: date ?? new Date().toISOString().slice(0, 10),
+        startTime: startTime || null,
         format,
         playerIds,
         numGames: generated.length,
