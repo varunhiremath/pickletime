@@ -4,7 +4,13 @@ import TopBar from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import MatchCard from '../components/scoreboard/MatchCard.jsx';
+import BracketSection from '../components/bracket/BracketSection.jsx';
 import useSessionStore from '../store/sessionStore.js';
+import { getBackend } from '../sync/backend.js';
+import { toast } from '../store/uiStore.js';
+import { useHaptics } from '../hooks/useHaptics.js';
+import { playChime, playError } from '../utils/sound.js';
+import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -14,17 +20,26 @@ const FILTERS = [
 
 export default function MatchesPage() {
   const { session, games, members, identity, recentlyChanged } = useSessionStore();
+  const players = useSessionStore((s) => s.sessionPlayers());
   const [filter, setFilter] = useState('all');
+  const haptic = useHaptics();
+
+  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+
+  // The round robin is what this list shows; the knockout stage has its own
+  // section, because a semifinal with nobody in it yet is not a fixture you can
+  // sensibly file under "Round 5".
+  const fixtures = useMemo(() => roundRobinGames(games), [games]);
 
   const visible = useMemo(() => {
-    if (filter === 'unplayed') return games.filter((g) => !g.played);
+    if (filter === 'unplayed') return fixtures.filter((g) => !g.played);
     if (filter === 'mine' && identity?.memberId) {
-      return games.filter(
+      return fixtures.filter(
         (g) => g.teamA.includes(identity.memberId) || g.teamB.includes(identity.memberId)
       );
     }
-    return games;
-  }, [games, filter, identity?.memberId]);
+    return fixtures;
+  }, [fixtures, filter, identity?.memberId]);
 
   const rounds = useMemo(() => {
     const byRound = new Map();
@@ -34,6 +49,27 @@ export default function MatchesPage() {
     }
     return [...byRound.entries()].sort((a, b) => a[0] - b[0]);
   }, [visible]);
+
+  /**
+   * Save a score from the card itself. This is the main scoring path now:
+   * fixtures rarely finish in schedule order, so being able to fill in any row
+   * at any time — rather than paging to the one screen that showed one game —
+   * is the difference between the app matching how a session actually runs and
+   * fighting it.
+   */
+  const submit = async (game, a, b, teams) => {
+    try {
+      await getBackend().submitScore(game.id, a, b, teams);
+      if (a != null) {
+        haptic('win');
+        playChime();
+      }
+      toast(a == null ? 'Score cleared.' : 'Score saved.', { type: a == null ? 'info' : 'success' });
+    } catch (err) {
+      playError();
+      toast(err.message ?? 'Could not save that score.', { type: 'error' });
+    }
+  };
 
   if (!session || games.length === 0) {
     return (
@@ -55,7 +91,7 @@ export default function MatchesPage() {
     <>
       <TopBar
         title="Matches"
-        subtitle={`${session.name} · ${games.filter((g) => g.played).length}/${games.length} played`}
+        subtitle={`${session.name} · ${bracket.rr.played}/${bracket.rr.total} played`}
       />
 
       <div className="no-scrollbar mb-3 flex gap-2 overflow-x-auto px-4">
@@ -79,18 +115,18 @@ export default function MatchesPage() {
         })}
       </div>
 
-      {visible.length === 0 ? (
-        <EmptyState
-          title={filter === 'mine' ? 'None of these are yours' : 'Everything has been played'}
-          message={
-            filter === 'mine'
-              ? "You're not in any of these fixtures."
-              : 'Every game in this session has a score.'
-          }
-        />
-      ) : (
-        <div className="flex flex-col gap-5 px-4">
-          {rounds.map(([round, roundGames]) => (
+      <div className="flex flex-col gap-5 px-4">
+        {visible.length === 0 ? (
+          <EmptyState
+            title={filter === 'mine' ? 'None of these are yours' : 'Everything has been played'}
+            message={
+              filter === 'mine'
+                ? "You're not in any of these fixtures."
+                : 'Every round-robin game has a score.'
+            }
+          />
+        ) : (
+          rounds.map(([round, roundGames]) => (
             <section key={round} className="flex flex-col gap-2">
               <div className="flex items-center gap-3">
                 <h2
@@ -109,13 +145,24 @@ export default function MatchesPage() {
                   members={members}
                   courts={session.courts}
                   highlight={recentlyChanged.includes(g.id)}
-                  to="/score"
+                  editable
+                  onSubmit={(a, b, teams) => submit(g, a, b, teams)}
+                  to={`/score?game=${g.id}`}
                 />
               ))}
             </section>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+
+        {/* The knockout stage always shows, filter or not — it is the session's
+            destination and hiding it behind "Mine" would bury the final. */}
+        <BracketSection
+          bracket={bracket}
+          members={members}
+          session={session}
+          onSubmit={submit}
+        />
+      </div>
     </>
   );
 }

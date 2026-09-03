@@ -11,6 +11,7 @@
 // Everything here is pure: ids in, games out. No DB, no DOM, no clock.
 
 import { mulberry32, shuffle } from './rng.js';
+import { STAGE, BRACKET_SIZE, buildBracketGames } from './bracket.js';
 
 export const FORMATS = {
   SINGLES: 'singles',
@@ -22,6 +23,8 @@ function makeGame({ ordinal, round, teamA, teamB, byes }) {
     ordinal,
     round,
     court: 1, // assigned by assignCourts()
+    stage: STAGE.RR,
+    slot: null,
     teamA,
     teamB,
     byes,
@@ -162,13 +165,46 @@ export function generateAmericano(playerIds, { numGames = 8, courts = 1, seed = 
 }
 
 /**
- * The one entry point the app uses. Returns games with courts assigned.
+ * Whether a session can finish with a knockout stage.
+ *
+ * Singles only, for now. The top four seeds are individuals, so a semifinal
+ * between them is a singles match — which is exactly right for a singles round
+ * robin and meaningless for a doubles one, where there is no principled way to
+ * pair four individuals into two teams that everybody would accept as fair.
+ * Rather than invent one, Americano sessions simply don't offer playoffs.
  */
-export function generateSchedule({ format, playerIds, numGames = 8, courts = 1, seed = 1 }) {
+export function canRunPlayoffs({ format, playerCount }) {
+  return format === FORMATS.SINGLES && playerCount >= BRACKET_SIZE;
+}
+
+/**
+ * The one entry point the app uses. Returns games with courts assigned.
+ *
+ * With `playoffs`, four empty knockout fixtures are appended after the round
+ * robin — semifinals, a third-place game and a final. They carry no players:
+ * who plays them is derived from the standings once the round robin is done.
+ * See utils/bracket.js.
+ */
+export function generateSchedule({
+  format,
+  playerIds,
+  numGames = 8,
+  courts = 1,
+  seed = 1,
+  playoffs = false,
+}) {
   const games =
     format === FORMATS.SINGLES
       ? generateSingles(playerIds)
       : generateAmericano(playerIds, { numGames, courts, seed });
+
+  if (playoffs && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
+    const last = games[games.length - 1];
+    games.push(...buildBracketGames({ lastOrdinal: last.ordinal, lastRound: last.round }));
+  }
+
+  // Courts are assigned across the whole schedule, so the two semifinals share
+  // the courts the round robin was using rather than queueing behind each other.
   return assignCourts(games, courts);
 }
 

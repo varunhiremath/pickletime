@@ -5,8 +5,10 @@ import TopBar from '../components/layout/TopBar.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import FlipList from '../components/fx/FlipList.jsx';
 import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
+import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
-import { computeStandings, sessionProgress } from '../utils/standings.js';
+import { computeStandings } from '../utils/standings.js';
+import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 
 // Four columns, not six. On a 390px phone, adding PF/PA squeezes the name column
 // until "Varun" renders as "Var…" — and a name you can't read is worse than a
@@ -33,23 +35,28 @@ function StreakBadge({ streak }) {
 }
 
 export default function StandingsPage() {
-  const { session, games, recentlyChanged } = useSessionStore();
+  const { session, games, members, recentlyChanged } = useSessionStore();
   const players = useSessionStore((s) => s.sessionPlayers());
 
-  const rows = useMemo(() => computeStandings(players, games), [players, games]);
-  const progress = useMemo(() => sessionProgress(games), [games]);
+  // The table is the ROUND ROBIN table. Playoff results must not feed back into
+  // it: the standings are what seeds the bracket, so counting semifinals here
+  // would let the bracket rewrite its own seeding.
+  const fixtures = useMemo(() => roundRobinGames(games), [games]);
+  const rows = useMemo(() => computeStandings(players, fixtures), [players, fixtures]);
+  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  const progress = bracket.rr;
   const anyPlayed = progress.played > 0;
 
   // Which rows should flash: anyone who played the game that just changed.
   const flashing = useMemo(() => {
     if (recentlyChanged.length === 0) return new Set();
     const ids = new Set();
-    for (const g of games) {
+    for (const g of fixtures) {
       if (!recentlyChanged.includes(g.id)) continue;
       for (const id of [...g.teamA, ...g.teamB]) ids.add(id);
     }
     return ids;
-  }, [recentlyChanged, games]);
+  }, [recentlyChanged, fixtures]);
 
   if (!session || players.length === 0) {
     return (
@@ -67,8 +74,24 @@ export default function StandingsPage() {
     <>
       <TopBar
         title="Standings"
-        subtitle={anyPlayed ? `${progress.played} of ${progress.total} games played` : session.name}
+        subtitle={
+          anyPlayed
+            ? `${bracket.enabled ? 'Round robin' : 'Session'} · ${progress.played} of ${progress.total} played`
+            : session.name
+        }
       />
+
+      {/* The tournament's result outranks the table that produced it. */}
+      {bracket.complete && (
+        <div className="mb-4 px-4">
+          <Podium
+            champion={bracket.champion}
+            runnerUp={bracket.runnerUp}
+            third={bracket.third}
+            members={members}
+          />
+        </div>
+      )}
 
       {!anyPlayed ? (
         <EmptyState
@@ -172,6 +195,7 @@ export default function StandingsPage() {
           </FlipList>
 
           <p className="mt-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+            {bracket.enabled ? 'Round-robin table — this is what seeds the playoffs. ' : ''}
             Ranked by wins, then point difference · tap a player for full stats
           </p>
         </div>

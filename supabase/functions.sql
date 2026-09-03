@@ -158,7 +158,7 @@ end;
 $$;
 
 -- ================================================================
--- submit_score(game_id, a, b)
+-- submit_score(game_id, a, b, team_a, team_b)
 -- ================================================================
 -- The ONLY way a score is ever written. `games` has no UPDATE policy (see
 -- policies.sql), so this function is the sole writer, and it always appends to
@@ -167,8 +167,29 @@ $$;
 -- exactly like everyone else's.
 --
 -- Passing (null, null) clears a score.
+--
+-- WHY THIS TAKES TEAMS
+--
+-- Knockout fixtures are created with the session but start empty: nobody knows
+-- who plays a semifinal until the round robin has finished. The client derives
+-- the line-ups from the standings (src/utils/bracket.js) and passes them in
+-- alongside the score, which is the moment they stop being a derivation and
+-- become a record of who actually played. Without that, correcting a
+-- round-robin score months later would silently rewrite the final.
+--
+-- Teams are only ever written for knockout rows. A round-robin fixture's
+-- line-up comes from the generated schedule and this function will not touch it,
+-- whatever the caller passes.
 
-create or replace function public.submit_score(p_game_id uuid, p_a int, p_b int)
+drop function if exists public.submit_score(uuid, int, int);
+
+create or replace function public.submit_score(
+  p_game_id uuid,
+  p_a       int,
+  p_b       int,
+  p_team_a  uuid[] default null,
+  p_team_b  uuid[] default null
+)
 returns json
 language plpgsql
 security definer
@@ -180,6 +201,9 @@ declare
   v_member public.members%rowtype;
   v_game   public.games%rowtype;
   v_played boolean;
+  v_knockout boolean;
+  v_team_a uuid[];
+  v_team_b uuid[];
 begin
   if v_uid is null then
     raise exception 'Not signed in' using errcode = '28000';
@@ -204,14 +228,58 @@ begin
     raise exception 'Scores cannot be negative' using errcode = '22023';
   end if;
 
-  v_played := p_a is not null and p_b is not null;
+  v_played   := p_a is not null and p_b is not null;
+  v_knockout := coalesce(v_game.stage, 'rr') <> 'rr';
 
-  insert into public.score_events (game_id, member_id, score_a, score_b, prev_a, prev_b)
-  values (p_game_id, v_member.id, p_a, p_b, v_game.score_a, v_game.score_b);
+  -- Default: leave the line-up exactly as it is.
+  v_team_a := v_game.team_a;
+  v_team_b := v_game.team_b;
+
+  if v_knockout then
+    if not v_played then
+      -- Clearing a knockout score un-decides it, so the slot goes back to being
+      -- derived from the standings. Leaving stale players on a cleared
+      -- semifinal would freeze the bracket at whatever it happened to say.
+      v_team_a := '{}';
+      v_team_b := '{}';
+    elsif p_team_a is not null and p_team_b is not null then
+      if array_length(p_team_a, 1) is null or array_length(p_team_b, 1) is null then
+        raise exception 'A knockout game needs a player on each side' using errcode = '22023';
+      end if;
+
+      if p_team_a && p_team_b then
+        raise exception 'A player cannot be on both sides' using errcode = '22023';
+      end if;
+
+      -- Everyone named has to be on this club's roster. The caller is already a
+      -- member and could enter any score they like, but they should not be able
+      -- to write another club's member ids into this one's games.
+      if exists (
+        select 1
+          from unnest(p_team_a || p_team_b) as t(id)
+         where not exists (
+           select 1 from public.members m
+            where m.id = t.id and m.club_id = v_club
+         )
+      ) then
+        raise exception 'Those players are not in this club' using errcode = '22023';
+      end if;
+
+      v_team_a := p_team_a;
+      v_team_b := p_team_b;
+    end if;
+  end if;
+
+  insert into public.score_events
+    (game_id, member_id, score_a, score_b, prev_a, prev_b, team_a, team_b)
+  values
+    (p_game_id, v_member.id, p_a, p_b, v_game.score_a, v_game.score_b, v_team_a, v_team_b);
 
   update public.games
      set score_a    = p_a,
          score_b    = p_b,
+         team_a     = v_team_a,
+         team_b     = v_team_b,
          played     = v_played,
          scored_by  = v_member.id,
          updated_at = now()
@@ -229,13 +297,13 @@ $$;
 -- reachable by any signed-in account by design — that is how somebody with no
 -- club yet gets one. Both check auth.uid() themselves.
 
-revoke all on function public.create_club(text, text)          from public, anon;
-revoke all on function public.claim_invite(text)               from public, anon;
-revoke all on function public.submit_score(uuid, int, int)     from public, anon;
+revoke all on function public.create_club(text, text)     from public, anon;
+revoke all on function public.claim_invite(text)          from public, anon;
+revoke all on function public.submit_score(uuid, int, int, uuid[], uuid[]) from public, anon;
 
-grant execute on function public.create_club(text, text)       to authenticated;
-grant execute on function public.claim_invite(text)            to authenticated;
-grant execute on function public.submit_score(uuid, int, int)  to authenticated;
+grant execute on function public.create_club(text, text)  to authenticated;
+grant execute on function public.claim_invite(text)       to authenticated;
+grant execute on function public.submit_score(uuid, int, int, uuid[], uuid[]) to authenticated;
 
 -- The RLS helpers MUST stay executable by `authenticated`. Policy expressions
 -- are evaluated as the querying role, so revoking EXECUTE here would make every

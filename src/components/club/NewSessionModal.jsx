@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import Modal from '../ui/Modal.jsx';
 import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
-import { FORMATS, gamesPerPlayer } from '../../utils/schedule.js';
+import { FORMATS, gamesPerPlayer, canRunPlayoffs } from '../../utils/schedule.js';
+import { BRACKET_SIZE } from '../../utils/bracket.js';
 import useSettingsStore from '../../store/settingsStore.js';
 
 const FORMAT_OPTIONS = [
@@ -75,6 +76,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const [numGames, setNumGames] = useState(settings.lastNumGames);
   const [courts, setCourts] = useState(settings.lastCourts);
   const [pointsTo, setPointsTo] = useState(settings.lastPointsTo);
+  const [playoffs, setPlayoffs] = useState(true);
   const [busy, setBusy] = useState(false);
 
   // Re-seed the selection every time the sheet opens. This component stays
@@ -97,6 +99,9 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const perPlayer = enough
     ? gamesPerPlayer({ format, playerCount: playerIds.length, numGames })
     : 0;
+
+  const playoffsAvailable = canRunPlayoffs({ format, playerCount: playerIds.length });
+  const wantsPlayoffs = playoffs && playoffsAvailable;
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -125,6 +130,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
         numGames,
         courts: Math.min(courts, maxCourts),
         pointsTo,
+        playoffs: wantsPlayoffs,
       });
       onClose();
     } finally {
@@ -306,13 +312,59 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
           <Stepper label="Points to" value={pointsTo} onChange={setPointsTo} min={1} max={31} />
         </div>
 
+        {/* Playoffs. Singles only: the four seeds are individuals, so a
+            semifinal between them is a singles match, and there is no fair way
+            to pair them up in a doubles session. */}
+        {format === FORMATS.SINGLES && (
+          <button
+            onClick={() => playoffsAvailable && setPlayoffs((p) => !p)}
+            disabled={!playoffsAvailable}
+            aria-pressed={wantsPlayoffs}
+            className="flex items-center gap-3 text-left disabled:opacity-50"
+            style={{
+              padding: 'var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              background: wantsPlayoffs
+                ? 'color-mix(in srgb, var(--gold) 14%, transparent)'
+                : 'var(--bg-raised)',
+              border: `1.5px solid ${wantsPlayoffs ? 'var(--gold)' : 'transparent'}`,
+            }}
+          >
+            <span
+              className="flex h-6 w-11 shrink-0 items-center p-0.5"
+              style={{
+                borderRadius: 'var(--radius-full)',
+                background: wantsPlayoffs ? 'var(--gold)' : 'var(--line)',
+                justifyContent: wantsPlayoffs ? 'flex-end' : 'flex-start',
+                transition: 'background var(--dur-standard)',
+              }}
+            >
+              <span
+                className="h-5 w-5 rounded-full"
+                style={{ background: 'var(--bg-surface)' }}
+              />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-sans text-sm font-bold" style={{ color: 'var(--text-hi)' }}>
+                Finish with playoffs
+              </span>
+              <span className="block font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                {playoffsAvailable
+                  ? 'Top four seeds into semifinals, then a third-place game and a final.'
+                  : `Needs at least ${BRACKET_SIZE} players.`}
+              </span>
+            </span>
+          </button>
+        )}
+
         {format === FORMATS.SINGLES && enough && (
           <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
             A full round robin is{' '}
             <strong style={{ color: 'var(--text-hi)' }}>
               {(playerIds.length * (playerIds.length - 1)) / 2} games
             </strong>{' '}
-            — {playerIds.length - 1} each.
+            — {playerIds.length - 1} each
+            {wantsPlayoffs ? ', plus four playoff games' : ''}.
           </p>
         )}
       </div>

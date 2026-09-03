@@ -85,6 +85,12 @@ describe('session mapping', () => {
       num_games: 8, courts: 2, points_to: 11, rng_seed: 4294967295,
     });
   });
+
+  it('maps the playoffs flag, defaulting a session written before it existed to false', () => {
+    expect(sessionFromRow({ ...row, playoffs: true }).playoffs).toBe(true);
+    expect(sessionFromRow(row).playoffs).toBe(false);
+    expect(sessionToRow(sessionFromRow({ ...row, playoffs: true })).playoffs).toBe(true);
+  });
 });
 
 describe('game mapping', () => {
@@ -127,6 +133,21 @@ describe('game mapping', () => {
     const g = gameFromRow({ ...row, score_a: 0, score_b: 0, played: true });
     expect(gameToRow(g).score_a).toBe(0);
     expect(gameToRow(g).score_b).toBe(0);
+  });
+
+  it('reads a game written before playoffs existed as a round-robin fixture', () => {
+    // No `stage` column in the row at all. Defaulting to anything else would
+    // reclassify every historical game as a playoff.
+    const g = gameFromRow(row);
+    expect(g.stage).toBe('rr');
+    expect(g.slot).toBeNull();
+    expect(gameToRow(g).stage).toBe('rr');
+  });
+
+  it('round-trips a knockout fixture', () => {
+    const g = gameFromRow({ ...row, stage: 'final', slot: 'final', team_a: [], team_b: [] });
+    expect(g).toMatchObject({ stage: 'final', slot: 'final', teamA: [], teamB: [] });
+    expect(gameToRow(g)).toMatchObject({ stage: 'final', slot: 'final', team_a: [], team_b: [] });
   });
 });
 

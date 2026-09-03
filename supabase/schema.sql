@@ -96,6 +96,12 @@ create table if not exists public.sessions (
 -- Nullable: a session without a set time is perfectly normal.
 alter table public.sessions add column if not exists start_time text;
 
+-- Whether this session finishes with a knockout stage: top four seeds into
+-- semifinals, then a third-place game and a final. The four fixtures live in
+-- `games` like any other; this flag only records that the session was set up
+-- with them, so the UI can say "no playoffs" rather than "playoffs not reached".
+alter table public.sessions add column if not exists playoffs boolean not null default false;
+
 create index if not exists sessions_club_idx on public.sessions(club_id, created_at desc);
 
 -- ---------------------------------------------------------------- games
@@ -117,6 +123,37 @@ create table if not exists public.games (
   unique (session_id, ordinal)
 );
 
+-- Which part of the tournament a game belongs to.
+--
+-- 'rr' is an ordinary round-robin fixture and is the default, so every game
+-- written before playoffs existed keeps meaning exactly what it meant.
+--
+-- The knockout rows are created with the session but start with EMPTY team_a
+-- and team_b: nobody knows who plays a semifinal until the round robin is done.
+-- src/utils/bracket.js derives the line-ups from the standings for display, and
+-- submit_score() writes them onto the row the moment a score is entered — after
+-- which the stored line-up is the record of who actually played.
+alter table public.games
+  add column if not exists stage text not null default 'rr';
+
+alter table public.games
+  add column if not exists slot text;
+
+do $$
+begin
+  alter table public.games
+    add constraint games_stage_check
+    check (stage in ('rr', 'sf', 'bronze', 'final'));
+exception
+  when duplicate_object then null;
+end $$;
+
+-- A session has at most one of each knockout fixture. Round-robin games have a
+-- NULL slot, and Postgres allows any number of those.
+create unique index if not exists games_session_slot_key
+  on public.games(session_id, slot)
+  where slot is not null;
+
 create index if not exists games_session_idx on public.games(session_id, ordinal);
 
 -- ---------------------------------------------------------------- score_events
@@ -135,6 +172,13 @@ create table if not exists public.score_events (
   prev_b      int,
   created_at  timestamptz not null default now()
 );
+
+-- Knockout line-ups are part of a score change: entering the final's score is
+-- also the act that records who reached it. Logging them keeps the audit trail
+-- complete — otherwise a bracket could be re-pointed at different players with
+-- nothing but the score showing in the log.
+alter table public.score_events add column if not exists team_a uuid[];
+alter table public.score_events add column if not exists team_b uuid[];
 
 create index if not exists score_events_game_idx
   on public.score_events(game_id, created_at desc);

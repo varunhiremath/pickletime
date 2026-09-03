@@ -6,7 +6,9 @@ import {
   generateSchedule,
   assignCourts,
   gamesPerPlayer,
+  canRunPlayoffs,
 } from './schedule.js';
+import { STAGE, SLOT, isRoundRobin, knockoutGames } from './bracket.js';
 
 const players = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -221,6 +223,74 @@ describe('generateSchedule', () => {
   it('is reproducible end to end from the seed', () => {
     const opts = { format: FORMATS.AMERICANO, playerIds: players(5), numGames: 10, courts: 1, seed: 99 };
     expect(generateSchedule(opts)).toEqual(generateSchedule(opts));
+  });
+});
+
+describe('canRunPlayoffs', () => {
+  it('needs four singles players', () => {
+    expect(canRunPlayoffs({ format: FORMATS.SINGLES, playerCount: 4 })).toBe(true);
+    expect(canRunPlayoffs({ format: FORMATS.SINGLES, playerCount: 3 })).toBe(false);
+  });
+
+  it('is off for americano, where four seeds cannot be paired fairly', () => {
+    expect(canRunPlayoffs({ format: FORMATS.AMERICANO, playerCount: 8 })).toBe(false);
+  });
+});
+
+describe('generateSchedule — playoffs', () => {
+  const opts = { format: FORMATS.SINGLES, playerIds: players(5), courts: 1, seed: 4 };
+
+  it('appends four knockout fixtures after the round robin', () => {
+    const plain = generateSchedule(opts);
+    const withPo = generateSchedule({ ...opts, playoffs: true });
+
+    expect(plain.every(isRoundRobin)).toBe(true);
+    expect(withPo).toHaveLength(plain.length + 4);
+    expect(knockoutGames(withPo).map((g) => g.slot)).toEqual([
+      SLOT.SF1, SLOT.SF2, SLOT.BRONZE, SLOT.FINAL,
+    ]);
+  });
+
+  it('leaves the round robin itself untouched', () => {
+    const plain = generateSchedule(opts);
+    const withPo = generateSchedule({ ...opts, playoffs: true });
+    expect(withPo.slice(0, plain.length)).toEqual(plain);
+  });
+
+  it('continues the ordinals and starts a new round for the semifinals', () => {
+    const games = generateSchedule({ ...opts, playoffs: true });
+    const rrLast = games.filter(isRoundRobin).at(-1);
+    const ko = knockoutGames(games);
+
+    expect(ko[0].ordinal).toBe(rrLast.ordinal + 1);
+    expect(ko.map((g) => g.ordinal)).toEqual([
+      rrLast.ordinal + 1, rrLast.ordinal + 2, rrLast.ordinal + 3, rrLast.ordinal + 4,
+    ]);
+    expect(ko[0].round).toBe(rrLast.round + 1);
+    expect(ko.at(-1).round).toBe(rrLast.round + 2);
+  });
+
+  it('runs the two semifinals on separate courts when there are two', () => {
+    const games = generateSchedule({ ...opts, courts: 2, playoffs: true });
+    const semis = knockoutGames(games).filter((g) => g.stage === STAGE.SEMI);
+    expect(semis.map((g) => g.court)).toEqual([1, 2]);
+  });
+
+  it('refuses a bracket that cannot be filled', () => {
+    // Three players cannot produce four seeds, and americano has no bracket.
+    expect(generateSchedule({ ...opts, playerIds: players(3), playoffs: true }).every(isRoundRobin)).toBe(true);
+    expect(
+      generateSchedule({
+        format: FORMATS.AMERICANO, playerIds: players(8), numGames: 6, seed: 2, playoffs: true,
+      }).every(isRoundRobin)
+    ).toBe(true);
+  });
+
+  it('stamps every round-robin game as such', () => {
+    for (const g of generateSchedule({ ...opts, playoffs: true }).filter(isRoundRobin)) {
+      expect(g.stage).toBe(STAGE.RR);
+      expect(g.slot).toBeNull();
+    }
   });
 });
 
