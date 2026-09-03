@@ -11,6 +11,13 @@ import StandingsPage from './pages/StandingsPage.jsx';
 import ClubPage from './pages/ClubPage.jsx';
 import PlayerPage from './pages/PlayerPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import { restoreDeepLink } from './utils/deepLink.js';
+
+// MUST run before createBrowserRouter, which reads window.location exactly once.
+// This lived in main.jsx's body previously, which is too late: ES modules
+// evaluate their imports first, so the router had already snapshotted the
+// un-restored URL and every deep link landed on the default page.
+restoreDeepLink();
 
 export const router = createBrowserRouter(
   [

@@ -10,16 +10,9 @@ import useSettingsStore from './store/settingsStore.js';
 import { applyTheme, watchSystemTheme } from './utils/theme.js';
 import './index.css';
 
-// GitHub Pages has no SPA rewrite, so public/404.html bounces deep links back to
-// the root with the intended path in ?redirect=. Restore it into history before
-// React mounts, so the router sees the URL the user actually asked for.
-(function restoreDeepLink() {
-  const params = new URLSearchParams(window.location.search);
-  const redirect = params.get('redirect');
-  if (!redirect) return;
-  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  window.history.replaceState(null, '', `${base}/${redirect.replace(/^\//, '')}`);
-})();
+// Deep-link restoration for GitHub Pages lives in router.jsx, deliberately — it
+// has to run before createBrowserRouter reads window.location, and a module's
+// body runs after its imports. See utils/deepLink.js.
 
 // With a project configured the app shares data across everyone's phones; with
 // no env vars it falls back to single-device mode, which is fully working rather

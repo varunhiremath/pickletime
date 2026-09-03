@@ -326,6 +326,7 @@ export default function ClubPage() {
                     <InviteRow
                       member={m}
                       invite={inviteFor(m.id)}
+                      clubName={club.name}
                       onMint={mintInvite}
                       onRevoke={revokeInvite}
                     />
