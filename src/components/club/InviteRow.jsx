@@ -3,6 +3,7 @@ import { Copy, Check, Share2, KeyRound, Ban } from 'lucide-react';
 import Chip from '../ui/Chip.jsx';
 import { toast, confirmDialog } from '../../store/uiStore.js';
 import { useHaptics } from '../../hooks/useHaptics.js';
+import { buildJoinUrl, buildInviteMessage } from '../../utils/inviteLink.js';
 
 /**
  * The invite state for one roster row, admin-only.
@@ -16,29 +17,51 @@ import { useHaptics } from '../../hooks/useHaptics.js';
  * of re-minted. Only the admin can see them — RLS blocks every other account
  * from reading the invites table at all.
  */
-export default function InviteRow({ member, invite, onMint, onRevoke }) {
+export default function InviteRow({ member, invite, clubName, onMint, onRevoke }) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const haptic = useHaptics();
 
   const claimed = Boolean(member.userId);
 
-  const copy = async () => {
+  // A link that opens the app with the code already in the field, so the
+  // recipient taps rather than retypes. Sending the bare code — which is all
+  // this used to do — left them holding eight characters and no address.
+  const joinUrl = invite
+    ? buildJoinUrl(invite.code, {
+        origin: typeof window === 'undefined' ? '' : window.location.origin,
+        base: import.meta.env.BASE_URL,
+      })
+    : null;
+
+  const writeToClipboard = async (text, note) => {
     try {
-      await navigator.clipboard.writeText(invite.code);
+      await navigator.clipboard.writeText(text);
       haptic('tap');
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
+      if (note) toast(note, { type: 'success' });
+      return true;
     } catch {
       toast('Could not copy — long-press the code to select it.', { type: 'error' });
+      return false;
     }
   };
 
+  const copy = () => writeToClipboard(invite.code);
+
   const share = async () => {
-    const text = `Join ${member.name ? 'our' : 'the'} PickleTime club with this code: ${invite.code}`;
+    const text = buildInviteMessage({
+      clubName,
+      memberName: member.name,
+      url: joinUrl,
+      code: invite.code,
+    });
     try {
       if (navigator.share) await navigator.share({ text });
-      else await copy();
+      // No share sheet (most desktops) — put the whole message on the clipboard
+      // rather than just the code, so pasting it is enough.
+      else await writeToClipboard(text, 'Invite copied — paste it to them.');
     } catch {
       // The user dismissed the share sheet — not an error worth reporting.
     }
@@ -131,7 +154,7 @@ export default function InviteRow({ member, invite, onMint, onRevoke }) {
 
       <button
         onClick={share}
-        aria-label={`Send ${member.name}'s code`}
+        aria-label={`Send ${member.name}'s invite link`}
         className="flex h-7 w-7 items-center justify-center rounded-full"
         style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
       >

@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import { codeFromSearch } from '../utils/inviteLink.js';
 import BallIcon from '../components/icons/BallIcon.jsx';
 import Button from '../components/ui/Button.jsx';
 import useSessionStore from '../store/sessionStore.js';
@@ -20,9 +21,25 @@ export default function JoinPage() {
   const refresh = useSessionStore((s) => s.refresh);
   const haptic = useHaptics();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  // An invite link carries the code (…/join?code=PT-7Q2K-9XR4), so tapping it in
+  // WhatsApp fills the field and leaves one tap to finish.
+  //
+  // Deliberately not auto-submitted: a revoked or already-used link would then
+  // fail before the person has seen what was even attempted, and an error with
+  // no context is worse than one more tap.
+  useEffect(() => {
+    const fromLink = codeFromSearch(`?${searchParams.toString()}`);
+    if (!fromLink) return;
+    setCode(fromLink);
+    // Drop it from the URL so a stale code isn't re-applied on a refresh, and
+    // isn't carried along if they share the address.
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const looksValid = isValidInviteCode(code);
 
