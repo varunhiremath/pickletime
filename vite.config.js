@@ -14,6 +14,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // src/pwa.js does the registration, via virtual:pwa-register. The injected
+      // script only registers the worker and never reloads the page, so an
+      // installed app would keep running old JavaScript indefinitely — leaving
+      // both in place would also register the worker twice.
+      injectRegister: null,
       includeAssets: ['icon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'robots.txt'],
       manifest: {
         name: 'PickleTime',

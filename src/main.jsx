@@ -8,6 +8,7 @@ import { createSupabaseBackend } from './sync/supabaseBackend.js';
 import { isSupabaseConfigured } from './sync/supabaseClient.js';
 import useSettingsStore from './store/settingsStore.js';
 import { applyTheme, watchSystemTheme } from './utils/theme.js';
+import { setupAutoUpdate } from './pwa.js';
 import './index.css';
 
 // Deep-link restoration for GitHub Pages lives in router.jsx, deliberately — it
@@ -23,6 +24,10 @@ setBackend(isSupabaseConfigured() ? createSupabaseBackend() : createLocalBackend
 // Apply the saved theme before first paint so there's no light-mode flash.
 applyTheme(useSettingsStore.getState().theme);
 watchSystemTheme(() => useSettingsStore.getState().theme);
+
+// Reload once a newly deployed service worker takes over. Without this an
+// installed app keeps serving whatever JavaScript it first cached. See src/pwa.js.
+setupAutoUpdate();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
