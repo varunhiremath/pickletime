@@ -90,6 +90,12 @@ create table if not exists public.sessions (
   created_at  timestamptz not null default now()
 );
 
+-- Start time, as "HH:MM" 24-hour text. Text rather than `time` because it is
+-- only ever displayed, never compared or arithmetic'd, and a bare `time` column
+-- invites timezone questions that do not apply to "we play at nine".
+-- Nullable: a session without a set time is perfectly normal.
+alter table public.sessions add column if not exists start_time text;
+
 create index if not exists sessions_club_idx on public.sessions(club_id, created_at desc);
 
 -- ---------------------------------------------------------------- games

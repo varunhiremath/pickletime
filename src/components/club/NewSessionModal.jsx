@@ -66,6 +66,10 @@ function Stepper({ label, value, onChange, min = 1, max = 50, hint }) {
 export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const settings = useSettingsStore();
   const [name, setName] = useState('');
+  // Defaults to today, but a session is usually scheduled ahead — you set up
+  // Sunday's tournament on Thursday — so both are editable.
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startTime, setStartTime] = useState('');
   const [format, setFormat] = useState(settings.lastFormat);
   const [selected, setSelected] = useState(() => new Set(members.map((m) => m.id)));
   const [numGames, setNumGames] = useState(settings.lastNumGames);
@@ -114,6 +118,8 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
       });
       await onCreate({
         name: name.trim() || 'Session',
+        date,
+        startTime,
         format,
         playerIds,
         numGames,
@@ -160,6 +166,55 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               color: 'var(--text-hi)',
             }}
           />
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label
+              htmlFor="session-date"
+              className="mb-1.5 block font-sans text-[11px] font-bold uppercase tracking-wider"
+              style={{ color: 'var(--text-lo)' }}
+            >
+              Date
+            </label>
+            <input
+              id="session-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full font-sans text-base outline-none"
+              style={{
+                padding: '11px 13px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-raised)',
+                border: '1px solid var(--line)',
+                color: 'var(--text-hi)',
+              }}
+            />
+          </div>
+          <div className="flex-1">
+            <label
+              htmlFor="session-time"
+              className="mb-1.5 block font-sans text-[11px] font-bold uppercase tracking-wider"
+              style={{ color: 'var(--text-lo)' }}
+            >
+              Start time
+            </label>
+            <input
+              id="session-time"
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className="w-full font-sans text-base outline-none"
+              style={{
+                padding: '11px 13px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-raised)',
+                border: '1px solid var(--line)',
+                color: 'var(--text-hi)',
+              }}
+            />
+          </div>
         </div>
 
         <div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone } from 'lucide-react';
+import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
@@ -12,7 +13,8 @@ import { getBackend } from '../sync/backend.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
 export default function ClubPage() {
-  const { club, members, sessions, session, identity, remote, canPublish } = useSessionStore();
+  const { club, members, sessions, session, games, identity, remote, canPublish } =
+    useSessionStore();
   const refresh = useSessionStore((s) => s.refresh);
   const isAdmin = useSessionStore((s) => s.isAdmin());
   const inviteFor = useSessionStore((s) => s.inviteFor);
@@ -104,6 +106,31 @@ export default function ClubPage() {
     await getBackend().removeMember(member.id);
     await refresh();
     toast(`${member.name} removed.`, { type: 'info' });
+  };
+
+  /**
+   * Announce the session to the group chat.
+   *
+   * The app has no push notifications — a static site cannot send them — so
+   * this is how people actually find out a session exists.
+   */
+  const announceSession = async () => {
+    const text = buildSessionShare({
+      session,
+      games,
+      members,
+      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    });
+    try {
+      if (navigator.share) await navigator.share({ text });
+      else {
+        await navigator.clipboard.writeText(text);
+        toast('Details copied — paste them into your group chat.', { type: 'success' });
+      }
+    } catch {
+      // Share sheet dismissed, or the clipboard was blocked. Neither is worth
+      // interrupting the user over.
+    }
   };
 
   const createSession = async (config) => {
@@ -228,6 +255,11 @@ export default function ClubPage() {
                   {session.name}
                 </p>
                 <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                  {[formatSessionDate(session.date), formatSessionTime(session.startTime)]
+                    .filter(Boolean)
+                    .join(', ')}
+                </p>
+                <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
                   {session.format === 'singles' ? 'Singles round robin' : 'Doubles · Americano'} ·{' '}
                   {session.numGames} games · to {session.pointsTo}
                 </p>
@@ -238,6 +270,13 @@ export default function ClubPage() {
             <p className="font-sans text-sm" style={{ color: 'var(--text-lo)' }}>
               No session running.
             </p>
+          )}
+
+          {session && (
+            <Button variant="secondary" full onClick={announceSession}>
+              <Megaphone size={16} />
+              Tell everyone
+            </Button>
           )}
 
           {isAdmin && (
