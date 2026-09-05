@@ -3,6 +3,7 @@ import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
 import { roundRobinGames, isKnockout } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
+import { uuid } from '../utils/uuid.js';
 import { generateInviteCode } from '../utils/inviteCode.js';
 import {
   readLegacyState,
@@ -19,7 +20,7 @@ import {
 // implements the same interface as the eventual supabaseBackend, no page needs
 // to change when the server arrives.
 
-const newId = () => crypto.randomUUID();
+const newId = () => uuid();
 const now = () => Date.now();
 
 // In-process change notification. The Supabase backend will fan out realtime

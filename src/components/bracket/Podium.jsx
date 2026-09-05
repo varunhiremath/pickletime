@@ -37,11 +37,10 @@ export default function Podium({ champion, runnerUp, third, members, compact = f
 
   return (
     <div
-      className="a-pop flex flex-col items-center"
+      className="a-pop gold-field flex flex-col items-center"
       style={{
         padding: compact ? 'var(--space-4)' : 'var(--space-5) var(--space-4)',
         borderRadius: 'var(--radius-lg)',
-        background: 'linear-gradient(150deg, var(--gold), color-mix(in srgb, var(--gold) 72%, #fff))',
         boxShadow: 'var(--shadow-card)',
       }}
     >
