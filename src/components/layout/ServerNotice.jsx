@@ -37,12 +37,12 @@ function Notice({ message }) {
   return (
     <div
       role="status"
-      className="mx-4 mb-3 flex items-start gap-2.5"
+      className="clay-tint mx-4 mb-3 flex items-start gap-2.5"
       style={{
         padding: 'var(--space-3)',
         borderRadius: 'var(--radius-md)',
-        background: 'color-mix(in srgb, var(--clay) 12%, transparent)',
-        border: '1px solid color-mix(in srgb, var(--clay) 40%, transparent)',
+        borderWidth: 1,
+        borderStyle: 'solid',
       }}
     >
       <AlertTriangle size={15} className="mt-0.5 shrink-0" style={{ color: 'var(--clay)' }} />

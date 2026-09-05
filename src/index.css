@@ -25,6 +25,31 @@
   font-display: swap;
 }
 
+@layer components {
+  /* The champion card's gold field.
+   *
+   * Lives here rather than inline because it needs a FALLBACK, and a style
+   * object cannot hold two declarations for one property. color-mix only
+   * arrived in Safari 16.2, and an unparseable colour inside a gradient
+   * invalidates the whole gradient — so on an older iPhone the podium would
+   * lose its gold entirely and render dark text on the page background.
+   *
+   * Browsers that cannot parse the second declaration keep the first. */
+  .gold-field {
+    background: linear-gradient(150deg, #e7b94f, #efd292);
+    background: linear-gradient(150deg, var(--gold), color-mix(in srgb, var(--gold) 72%, #fff));
+  }
+
+  /* Same reasoning: a tinted warning surface that must still look like a
+   * warning when color-mix is unavailable. */
+  .clay-tint {
+    background: rgba(255, 92, 57, 0.12);
+    background: color-mix(in srgb, var(--clay) 12%, transparent);
+    border-color: rgba(255, 92, 57, 0.4);
+    border-color: color-mix(in srgb, var(--clay) 40%, transparent);
+  }
+}
+
 @layer base {
   html,
   body,

@@ -4,6 +4,7 @@ import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
 import { roundRobinGames } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
+import { uuid } from '../utils/uuid.js';
 import { generateInviteCode, normalizeInviteCode } from '../utils/inviteCode.js';
 import { buildPublishPlan } from '../utils/publishPlan.js';
 import {
@@ -90,7 +91,7 @@ async function withMirror(remote, fallback) {
   }
 }
 
-const newId = () => crypto.randomUUID();
+const newId = () => uuid();
 
 async function deviceId() {
   let id = await getMeta('deviceId');

@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0B1220" />
+
+    <!-- iOS.
+       * Safari has no install prompt and reads its own meta tags, so an
+       * installed PickleTime needs these or it opens inside Safari chrome
+       * rather than standalone.
+       *
+       * The status bar is `black` rather than `black-translucent` on purpose.
+       * Translucent would let the app's own background run under the status
+       * bar — which the safe-area padding already handles — but it forces
+       * light status-bar text, and this app has a light theme where that would
+       * be white on near-white. Black is legible in both. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="PickleTime" />
     <meta name="description" content="Schedule pickleball games, enter scores together, and watch the standings move live." />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />

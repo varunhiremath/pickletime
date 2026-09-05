@@ -48,6 +48,8 @@ when someone deep-links to Courtside.
 | `legacyImport.js` | `readLegacyState`, `hasImportableData`, `convertLegacyState` — one-shot v1 → v2 migration. |
 | `contrast.js` | `luminance`, `contrastRatio`, `meetsAA`, `readableTextOn`. |
 | `theme.js` | `resolveTheme`, `applyTheme`, `watchSystemTheme`. |
+| `uuid.js` | `uuid` — v4, with a `getRandomValues` fallback for Safari before 15.4. |
+| `platform.js` | `isIos`, `isStandalone`, `shouldOfferIosInstall`, `readEnv`. |
 | `sound.js` | `playTick`, `playChime`, `playFanfare`, `playError` — WebAudio, no asset files. |
 
 ## Data layer
@@ -249,6 +251,48 @@ Courtside mode keeps tap-to-increment — that screen is for live rally scoring.
 > (a live score from another phone, a highlight timer). `MatchCard`'s `Side` and
 > `BracketSection`'s heading/fixture renderers are at module scope for exactly this
 > reason. Both were caught in a browser, not by the unit tests.
+
+## iPhone
+
+The app is a PWA, so iPhone friends get the same thing Android does — but Safari
+differs in ways that are not all feature-detectable.
+
+**Install is invisible.** Safari has no install prompt; "Add to Home Screen" is
+partway down the Share sheet and nobody finds it unaided. `IosInstallHint` says
+so once, dismissibly, and only when `shouldOfferIosInstall()` — iOS and not
+already standalone. Android and desktop are left alone, because they prompt for
+themselves.
+
+**`index.html` carries the Apple meta tags.** Without
+`apple-mobile-web-app-capable` an installed app can open inside Safari chrome
+rather than standalone. The status bar is `black` rather than
+`black-translucent`: translucent would let the app's own background run under it
+(the safe-area padding already handles that) but it forces light status-bar
+text, and the light theme would then be white on near-white.
+
+**`crypto.randomUUID` is Safari 15.4+.** It generates every club, member,
+session and game id, so its absence would not degrade — creating a club would
+throw. `utils/uuid.js` falls back to `getRandomValues`, which Safari has had
+since 6.
+
+**`color-mix` is Safari 16.2+,** and an unparseable colour inside a gradient
+invalidates the whole gradient — the champion podium would have lost its gold
+field entirely. The two load-bearing uses moved to `.gold-field` / `.clay-tint`
+in `index.css`, where a plain first declaration acts as the fallback. That trick
+only works for ordinary properties: a custom property holds the unparsed token
+stream and fails later, at computed-value time, so it cannot be used there.
+The remaining `color-mix` uses are tints whose meaning is carried by a border or
+text colour, so they degrade to untinted rather than to invisible.
+
+**What simply does not work on iOS, by design:** `navigator.vibrate` (no haptics
+— guarded with `?.`), and Wake Lock before iOS 16.4, so Courtside mode may let
+an older iPhone sleep. Both are already optional-chained and degrade silently.
+
+**Testing.** No WebKit is available in this environment, so browser checks run
+Chromium at iPhone metrics. That proves layout, tap targets and our own platform
+logic — including a simulated pre-15.4 iPhone with `crypto.randomUUID` deleted —
+but it does **not** prove WebKit engine behaviour. Real-device checks stay
+manual.
 
 ## Components worth knowing
 
