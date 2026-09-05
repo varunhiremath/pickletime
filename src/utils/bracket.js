@@ -49,8 +49,28 @@ export const BRACKET_SIZE = 4;
  */
 export const teamKey = (ids) => [...ids].sort().join('+');
 
-// The four fixtures, in the order they are played. `seeds` names which standings
-// positions feed a slot directly; `feeds` names which earlier slots feed it.
+/**
+ * The two shapes a finish can take.
+ *
+ * KNOCKOUT is the tournament bracket: four entrants, semifinals, a third-place
+ * game and a final. It works when the entrants are the things that play — one
+ * player in singles, one fixed pair in doubles pairs.
+ *
+ * FINAL_ONLY is the Americano finish. Partners rotate all session there, so the
+ * table ranks individuals and there is no standing team to seed. The convention
+ * is to pair the top four for one deciding game — seeds 1 and 4 against seeds 2
+ * and 3, which balances the sides on paper so the final is a contest rather than
+ * a foregone conclusion. One game, because four players make only two teams and
+ * two teams cannot fill a bracket.
+ */
+export const SHAPES = {
+  KNOCKOUT: 'knockout',
+  FINAL_ONLY: 'final_only',
+};
+
+// The knockout fixtures, in the order they are played. `seeds` names which
+// standings positions feed a slot directly; `feeds` names which earlier slots
+// feed it; `pairs` combines two seeds into one side.
 export const BRACKET_SLOTS = [
   {
     slot: SLOT.SF1,
@@ -96,6 +116,41 @@ export const BRACKET_SLOTS = [
   },
 ];
 
+/** The Americano finish: one game, each side made of two seeds. */
+export const FINAL_ONLY_SLOTS = [
+  {
+    slot: SLOT.FINAL,
+    stage: STAGE.FINAL,
+    label: 'Final',
+    short: 'Final',
+    source: 'Seeds 1 & 4 vs Seeds 2 & 3',
+    pairs: [[0, 3], [1, 2]],
+    roundOffset: 1,
+  },
+];
+
+const SLOTS_FOR = {
+  [SHAPES.KNOCKOUT]: BRACKET_SLOTS,
+  [SHAPES.FINAL_ONLY]: FINAL_ONLY_SLOTS,
+};
+
+/** Every slot definition, for labelling a fixture wherever it turns up. */
+const ALL_SLOTS = [...BRACKET_SLOTS, ...FINAL_ONLY_SLOTS];
+
+/**
+ * Which shape a session's finish is, read off the fixtures themselves.
+ *
+ * Derived rather than stored, for the same reason the pairs draw is: the games
+ * already say it, and a column could disagree with them.
+ */
+export function shapeOf(games) {
+  const ko = knockoutGames(games);
+  if (ko.length === 0) return null;
+  return ko.some((g) => g.slot === SLOT.SF1 || g.slot === SLOT.SF2)
+    ? SHAPES.KNOCKOUT
+    : SHAPES.FINAL_ONLY;
+}
+
 const stageOf = (g) => g?.stage ?? STAGE.RR;
 
 /** True for an ordinary round-robin fixture. Games written before the playoff
@@ -134,8 +189,8 @@ export function outcome(game) {
  * @param lastOrdinal  the last ordinal used by the round robin
  * @param lastRound    the last round number used by the round robin
  */
-export function buildBracketGames({ lastOrdinal = 0, lastRound = 0 } = {}) {
-  return BRACKET_SLOTS.map((def, i) => ({
+export function buildBracketGames({ lastOrdinal = 0, lastRound = 0, shape = SHAPES.KNOCKOUT } = {}) {
+  return (SLOTS_FOR[shape] ?? BRACKET_SLOTS).map((def, i) => ({
     ordinal: lastOrdinal + i + 1,
     round: lastRound + def.roundOffset,
     court: 1,
@@ -200,6 +255,8 @@ export function resolveBracket(entrants, games) {
 
   const ko = knockoutGames(games);
   const bySlot = new Map(ko.map((g) => [g.slot, g]));
+  const shape = shapeOf(games) ?? SHAPES.KNOCKOUT;
+  const slots = SLOTS_FOR[shape];
 
   const rrGames = roundRobinGames(games);
   const rrPlayed = rrGames.filter(isScored).length;
@@ -237,7 +294,7 @@ export function resolveBracket(entrants, games) {
   const resolved = new Map();
   const matches = [];
 
-  for (const def of BRACKET_SLOTS) {
+  for (const def of slots) {
     const game = bySlot.get(def.slot) ?? null;
 
     // A played game's line-up is history. Only fall back to derivation while the
@@ -279,9 +336,19 @@ export function resolveBracket(entrants, games) {
 
   // A winner arrives as player ids, so look the row up by the side's key rather
   // than by its first player — in pairs those are different things.
+  /**
+   * The standings row for a winning side.
+   *
+   * In the Americano finish the winners are two individuals who partnered for
+   * that one game, so there is no row to find — the podium gets a name built
+   * from the people on it instead of nothing at all.
+   */
   const rowFor = (ids) => {
+    if (!ids?.length) return null;
     const entrant = entrantOf(ids);
-    return entrant ? standings.find((r) => r.id === entrant.id) ?? null : null;
+    if (entrant) return standings.find((r) => r.id === entrant.id) ?? null;
+    const names = ids.map((id) => byId.get(id)?.name ?? '—');
+    return { id: teamKey(ids), name: names.join(' & '), playerIds: [...ids] };
   };
 
   const finalMatch = matches.find((m) => m.slot === SLOT.FINAL);
@@ -289,6 +356,7 @@ export function resolveBracket(entrants, games) {
 
   return {
     enabled,
+    shape,
     rr,
     standings,
     qualifiers,
@@ -312,6 +380,14 @@ function deriveSides(def, { qualifiers, resolved, enoughEntrants }) {
     return { teamA: qualifiers[i].playerIds, teamB: qualifiers[j].playerIds };
   }
 
+  // The Americano finish: each side is two seeds playing together, a partnership
+  // that exists for this one game and is not an entrant in the table.
+  if (def.pairs) {
+    if (!enoughEntrants || qualifiers.length < BRACKET_SIZE) return empty;
+    const side = (idx) => idx.flatMap((k) => qualifiers[k].playerIds);
+    return { teamA: side(def.pairs[0]), teamB: side(def.pairs[1]) };
+  }
+
   const [a, b] = def.feeds;
   return {
     teamA: resolved.get(a.slot)?.[a.take] ?? [],
@@ -325,11 +401,11 @@ function deriveSides(def, { qualifiers, resolved, enoughEntrants }) {
  */
 export function slotLabel(game) {
   if (!game || isRoundRobin(game)) return null;
-  return BRACKET_SLOTS.find((d) => d.slot === game.slot)?.label ?? 'Playoff';
+  return ALL_SLOTS.find((d) => d.slot === game.slot)?.label ?? 'Playoff';
 }
 
 /** The same, abbreviated to fit a pill in the game strip. */
 export function slotShortLabel(game) {
   if (!game || isRoundRobin(game)) return null;
-  return BRACKET_SLOTS.find((d) => d.slot === game.slot)?.short ?? 'PO';
+  return ALL_SLOTS.find((d) => d.slot === game.slot)?.short ?? 'PO';
 }

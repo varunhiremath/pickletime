@@ -74,13 +74,18 @@ export default function Podium({ champion, runnerUp, third, members, compact = f
         </span>
       </span>
 
+      {/* A one-game finish has no third place, so the grid adapts rather than
+          showing an empty slot with a dash in it. */}
       {(runnerUp || third) && (
         <div
-          className="mt-3 grid w-full grid-cols-2 gap-2 pt-3"
-          style={{ borderTop: '1px solid color-mix(in srgb, var(--text-on-accent) 18%, transparent)' }}
+          className="mt-3 grid w-full gap-2 pt-3"
+          style={{
+            gridTemplateColumns: runnerUp && third ? '1fr 1fr' : '1fr',
+            borderTop: '1px solid color-mix(in srgb, var(--text-on-accent) 18%, transparent)',
+          }}
         >
-          <Placing row={runnerUp} medal="🥈" label="Runner-up" />
-          <Placing row={third} medal="🥉" label="Third" />
+          {runnerUp && <Placing row={runnerUp} medal="🥈" label="Runner-up" />}
+          {third && <Placing row={third} medal="🥉" label="Third" />}
         </div>
       )}
     </div>

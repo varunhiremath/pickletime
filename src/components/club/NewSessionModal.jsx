@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Modal from '../ui/Modal.jsx';
 import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
-import { FORMATS, gamesPerPlayer, canRunPlayoffs } from '../../utils/schedule.js';
+import { FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape } from '../../utils/schedule.js';
 import { BRACKET_SIZE } from '../../utils/bracket.js';
 import TeamPicker from './TeamPicker.jsx';
 import { drawAll, pruneToField, isComplete } from '../../utils/teamDraft.js';
@@ -378,10 +378,10 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
           />
         )}
 
-        {/* Playoffs. Singles only: the four seeds are individuals, so a
-            semifinal between them is a singles match, and there is no fair way
-            to pair them up in a doubles session. */}
-        {(format === FORMATS.SINGLES || format === FORMATS.PAIRS) && (
+        {/* How the session ends. Singles and fixed pairs seed a four-entrant
+            bracket; Americano ranks individuals, so its top four pair up for one
+            deciding game instead. See utils/schedule.js playoffShape(). */}
+        {playoffShape(format) && (
           <button
             onClick={() => playoffsAvailable && setPlayoffs((p) => !p)}
             disabled={!playoffsAvailable}
@@ -412,14 +412,16 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
             </span>
             <span className="min-w-0">
               <span className="block font-sans text-sm font-bold" style={{ color: 'var(--text-hi)' }}>
-                Finish with playoffs
+                {format === FORMATS.AMERICANO ? 'Finish with a final' : 'Finish with playoffs'}
               </span>
               <span className="block font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                {playoffsAvailable
-                  ? `Top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} into semifinals, then a third-place game and a final.`
-                  : format === FORMATS.PAIRS
+                {!playoffsAvailable
+                  ? format === FORMATS.PAIRS
                     ? `Needs at least ${BRACKET_SIZE * 2} players — four teams.`
-                    : `Needs at least ${BRACKET_SIZE} players.`}
+                    : `Needs at least ${BRACKET_SIZE} players.`
+                  : format === FORMATS.AMERICANO
+                    ? 'Top four pair up for one deciding game — seeds 1 & 4 against 2 & 3.'
+                    : `Top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} into semifinals, then a third-place game and a final.`}
               </span>
             </span>
           </button>
