@@ -14,6 +14,13 @@ const FORMAT_OPTIONS = [
     min: 2,
   },
   {
+    value: FORMATS.PAIRS,
+    title: 'Doubles · Fixed pairs',
+    desc: 'Random draw into teams, then a round robin between them.',
+    min: 4,
+    evenOnly: true,
+  },
+  {
     value: FORMATS.AMERICANO,
     title: 'Doubles · Americano',
     desc: 'Partners and opponents rotate every game.',
@@ -92,9 +99,14 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
     [members, selected]
   );
 
-  const option = FORMAT_OPTIONS.find((o) => o.value === format);
-  const enough = playerIds.length >= option.min;
+  const option = FORMAT_OPTIONS.find((o) => o.value === format) ?? FORMAT_OPTIONS[0];
+  // Fixed pairs needs an even field — a leftover player would have nobody to
+  // partner, and quietly dropping them from their own session is worse than
+  // saying so before the schedule is built.
+  const oddField = Boolean(option.evenOnly) && playerIds.length % 2 === 1;
+  const enough = playerIds.length >= option.min && !oddField;
   const maxCourts = Math.max(1, Math.floor(playerIds.length / (format === FORMATS.SINGLES ? 2 : 4)));
+  const teamCount = Math.floor(playerIds.length / 2);
 
   const perPlayer = enough
     ? gamesPerPlayer({ format, playerCount: playerIds.length, numGames })
@@ -146,8 +158,12 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
       footer={
         <Button variant="primary" size="lg" full disabled={!enough || busy} onClick={submit}>
           {enough
-            ? `Generate ${format === FORMATS.SINGLES ? 'round robin' : `${numGames} games`}`
-            : `Pick at least ${option.min} players`}
+            ? `Generate ${
+                format === FORMATS.AMERICANO ? `${numGames} games` : 'round robin'
+              }`
+            : oddField
+              ? 'Pick an even number of players'
+              : `Pick at least ${option.min} players`}
         </Button>
       }
     >
@@ -315,7 +331,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
         {/* Playoffs. Singles only: the four seeds are individuals, so a
             semifinal between them is a singles match, and there is no fair way
             to pair them up in a doubles session. */}
-        {format === FORMATS.SINGLES && (
+        {(format === FORMATS.SINGLES || format === FORMATS.PAIRS) && (
           <button
             onClick={() => playoffsAvailable && setPlayoffs((p) => !p)}
             disabled={!playoffsAvailable}
@@ -350,8 +366,10 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               </span>
               <span className="block font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
                 {playoffsAvailable
-                  ? 'Top four seeds into semifinals, then a third-place game and a final.'
-                  : `Needs at least ${BRACKET_SIZE} players.`}
+                  ? `Top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} into semifinals, then a third-place game and a final.`
+                  : format === FORMATS.PAIRS
+                    ? `Needs at least ${BRACKET_SIZE * 2} players — four teams.`
+                    : `Needs at least ${BRACKET_SIZE} players.`}
               </span>
             </span>
           </button>
@@ -365,6 +383,25 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
             </strong>{' '}
             — {playerIds.length - 1} each
             {wantsPlayoffs ? ', plus four playoff games' : ''}.
+          </p>
+        )}
+
+        {format === FORMATS.PAIRS && (
+          <p className="font-sans text-xs" style={{ color: oddField ? 'var(--clay)' : 'var(--text-lo)' }}>
+            {oddField ? (
+              <>
+                {playerIds.length} players can't be paired evenly — add or drop one.
+              </>
+            ) : enough ? (
+              <>
+                <strong style={{ color: 'var(--text-hi)' }}>{teamCount} teams</strong>, drawn at
+                random, playing {(teamCount * (teamCount - 1)) / 2} games
+                {wantsPlayoffs ? ' plus four playoff games' : ''}. Partners are fixed all session —
+                you can redraw from the Club tab before anyone scores.
+              </>
+            ) : (
+              <>Pick at least four players.</>
+            )}
           </p>
         )}
       </div>

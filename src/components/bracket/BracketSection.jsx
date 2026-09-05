@@ -1,7 +1,7 @@
 import { Trophy, Lock, AlertTriangle } from 'lucide-react';
 import MatchCard from '../scoreboard/MatchCard.jsx';
 import Podium from './Podium.jsx';
-import { Avatar } from '../scoreboard/PlayerChip.jsx';
+import { Faces } from '../scoreboard/PlayerChip.jsx';
 import { SLOT, BRACKET_SIZE } from '../../utils/bracket.js';
 
 function Heading({ children }) {
@@ -195,7 +195,6 @@ function SeedRow({ qualifiers, standings, members }) {
 }
 
 function SeedChip({ row, seed, members, out = false, provisional = false }) {
-  const member = members.find((m) => m.id === row.id);
   return (
     <span
       className="flex items-center gap-1.5"
@@ -218,7 +217,7 @@ function SeedChip({ row, seed, members, out = false, provisional = false }) {
       >
         {seed}
       </span>
-      <Avatar member={member} size={18} />
+      <Faces ids={row.playerIds ?? [row.id]} members={members} size={18} />
       <span className="font-sans text-[13px] font-semibold" style={{ color: 'var(--text-hi)' }}>
         {row.name}
       </span>

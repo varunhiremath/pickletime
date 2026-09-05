@@ -16,7 +16,13 @@ import { STAGE, BRACKET_SIZE, buildBracketGames } from './bracket.js';
 export const FORMATS = {
   SINGLES: 'singles',
   AMERICANO: 'doubles_americano',
+  // Fixed partners for the whole session, drawn at random. The unit being
+  // ranked is the TEAM, not the player — see utils/entrants.js.
+  PAIRS: 'doubles_pairs',
 };
+
+/** Formats whose entrants are teams rather than individuals. */
+export const isTeamFormat = (format) => format === FORMATS.PAIRS;
 
 function makeGame({ ordinal, round, teamA, teamB, byes }) {
   return {
@@ -37,35 +43,41 @@ function makeGame({ ordinal, round, teamA, teamB, byes }) {
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 /**
- * Singles round robin via the circle method: everyone plays everyone exactly
- * once. With an odd number of players a phantom player creates a rotating bye,
- * so sit-outs are spread evenly rather than always landing on the same person.
+ * Round robin via the circle method: every entry plays every other exactly
+ * once. With an odd number of entries a phantom entry creates a rotating bye,
+ * so sit-outs are spread evenly rather than always landing on the same one.
+ *
+ * Deliberately generic over what an "entry" is. In singles it is one player id;
+ * in fixed-pairs doubles it is a two-player team. The rotation is identical
+ * either way, and having one implementation means the pairs format inherits the
+ * property the singles tests already pin down: everyone meets everyone once.
+ *
+ * @returns [{ round, a, b, sittingOut }] — a and b are entries, sittingOut the
+ *          entries not playing that round.
  */
-export function generateSingles(playerIds) {
-  if (playerIds.length < 2) return [];
+export function circleMethod(entries) {
+  if (entries.length < 2) return [];
 
-  let ids = playerIds.slice();
-  if (ids.length % 2 === 1) ids.push(null); // phantom player == the bye
+  const arr = entries.slice();
+  if (arr.length % 2 === 1) arr.push(null); // phantom entry == the bye
 
-  const n = ids.length;
-  const arr = ids.slice();
-  const games = [];
-  let ordinal = 1;
+  const n = arr.length;
+  const fixtures = [];
 
   for (let r = 0; r < n - 1; r++) {
     const sittingOut = [];
-    const roundGames = [];
+    const pairings = [];
 
     for (let i = 0; i < n / 2; i++) {
       const a = arr[i];
       const b = arr[n - 1 - i];
       if (a === null) sittingOut.push(b);
       else if (b === null) sittingOut.push(a);
-      else roundGames.push([a, b]);
+      else pairings.push([a, b]);
     }
 
-    for (const [a, b] of roundGames) {
-      games.push(makeGame({ ordinal: ordinal++, round: r + 1, teamA: [a], teamB: [b], byes: sittingOut }));
+    for (const [a, b] of pairings) {
+      fixtures.push({ round: r + 1, a, b, sittingOut });
     }
 
     // Rotate everyone except the first element — the circle method.
@@ -75,7 +87,54 @@ export function generateSingles(playerIds) {
     arr.splice(0, arr.length, fixed, ...rest);
   }
 
-  return games;
+  return fixtures;
+}
+
+/**
+ * Singles round robin: everyone plays everyone exactly once.
+ */
+export function generateSingles(playerIds) {
+  let ordinal = 1;
+  return circleMethod(playerIds).map(({ round, a, b, sittingOut }) =>
+    makeGame({ ordinal: ordinal++, round, teamA: [a], teamB: [b], byes: sittingOut })
+  );
+}
+
+/**
+ * Draw the field into fixed pairs, then run a round robin between those teams.
+ *
+ * Partners are fixed for the whole session — the opposite of Americano, where
+ * they rotate every game. That changes what the session *is*: the unit being
+ * ranked is the team, not the player, so standings and the playoff seeding both
+ * work on teams. See utils/entrants.js.
+ *
+ * The draw is seeded, so the same seed always produces the same teams and a
+ * redraw is a deliberate act with a new seed rather than something that quietly
+ * differs between two phones looking at the same session.
+ *
+ * Requires an even field: a leftover player would have nobody to partner, and
+ * silently dropping them from their own session is worse than refusing.
+ */
+export function generatePairs(playerIds, { seed = 1 } = {}) {
+  if (playerIds.length < 4 || playerIds.length % 2 === 1) return [];
+
+  const rng = mulberry32(seed);
+  const drawn = shuffle(playerIds, rng);
+
+  const teams = [];
+  for (let i = 0; i < drawn.length; i += 2) teams.push([drawn[i], drawn[i + 1]]);
+
+  let ordinal = 1;
+  return circleMethod(teams).map(({ round, a, b, sittingOut }) =>
+    makeGame({
+      ordinal: ordinal++,
+      round,
+      teamA: a,
+      teamB: b,
+      // A sitting-out *team* means both of its players are sitting out.
+      byes: sittingOut.flat(),
+    })
+  );
 }
 
 /**
@@ -174,7 +233,11 @@ export function generateAmericano(playerIds, { numGames = 8, courts = 1, seed = 
  * Rather than invent one, Americano sessions simply don't offer playoffs.
  */
 export function canRunPlayoffs({ format, playerCount }) {
-  return format === FORMATS.SINGLES && playerCount >= BRACKET_SIZE;
+  if (format === FORMATS.SINGLES) return playerCount >= BRACKET_SIZE;
+  // Fixed pairs seed the bracket by team, so it needs four TEAMS — eight
+  // players — not four people.
+  if (format === FORMATS.PAIRS) return playerCount >= BRACKET_SIZE * 2 && playerCount % 2 === 0;
+  return false;
 }
 
 /**
@@ -196,7 +259,9 @@ export function generateSchedule({
   const games =
     format === FORMATS.SINGLES
       ? generateSingles(playerIds)
-      : generateAmericano(playerIds, { numGames, courts, seed });
+      : format === FORMATS.PAIRS
+        ? generatePairs(playerIds, { seed })
+        : generateAmericano(playerIds, { numGames, courts, seed });
 
   if (playoffs && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
     const last = games[games.length - 1];
@@ -233,5 +298,8 @@ export function assignCourts(games, courts = 1) {
 export function gamesPerPlayer({ format, playerCount, numGames }) {
   if (playerCount < 2) return 0;
   if (format === FORMATS.SINGLES) return playerCount - 1;
+  // In fixed pairs you play every game your team plays, and your team meets
+  // each of the other teams once.
+  if (format === FORMATS.PAIRS) return Math.max(0, Math.floor(playerCount / 2) - 1);
   return (numGames * 4) / playerCount;
 }

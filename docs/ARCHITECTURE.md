@@ -38,7 +38,8 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `generateSingles`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
+| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
+| `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `bracket.js` | `STAGE`, `SLOT`, `BRACKET_SLOTS`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -159,6 +160,39 @@ failure, not a review opinion.
 
 Every changing number carries `tabular-nums` (`.num`, `.font-display`). Proportional
 figures make live-updating columns jitter.
+
+## Formats, and who gets ranked
+
+| Format | Sides | Ranked unit |
+| --- | --- | --- |
+| `singles` | one player | the player |
+| `doubles_americano` | pairs that rotate every game | the player |
+| `doubles_pairs` | pairs fixed for the session, drawn at random | **the team** |
+
+`doubles_pairs` broke an assumption that held everywhere else: that the thing
+which wins a game is a person. With fixed partners it is the team — the team is
+what tops the table and what gets seeded into a semifinal.
+
+`utils/entrants.js` is that abstraction. An **entrant** is `{ id, name, playerIds }`:
+one player in singles and americano, a pair in `doubles_pairs`. Standings, the
+bracket, the podium and the shared results all work on entrants, so none of them
+needs to know the format. `sessionStore.sessionEntrants()` builds them; the one
+deliberate exception is the player page, which ranks individuals whatever the
+format because it is about a person's own record.
+
+**Teams are derived from the games, not stored.** In a fixed-pairs round robin
+every game's side *is* a team by construction, so the schedule already carries
+the draw. A `teams` column would be a second source of truth that could disagree
+with the fixtures — most obviously after a redraw. `teamsFromGames()` recovers
+them in first-appearance order.
+
+`resolveBracket` collapses each side to its entrant id before ranking, which is
+what lets one `computeStandings` serve both shapes: a pair reduced to its team
+key looks exactly like a player to it.
+
+The draw is seeded like every other schedule, so the same seed reproduces the
+same teams. **Redraw teams** on the Club tab is `regenerateSchedule` with a fresh
+seed; it refuses once anything has been scored.
 
 ## The knockout stage
 

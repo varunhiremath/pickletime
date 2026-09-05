@@ -7,6 +7,7 @@
 // All pure, so the formatting is tested rather than eyeballed.
 
 import { resolveBracket } from './bracket.js';
+import { sessionEntrants } from './entrants.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -51,6 +52,7 @@ export function formatSessionTime(value) {
 const FORMAT_LABEL = {
   singles: 'Singles round robin',
   doubles_americano: 'Doubles · Americano',
+  doubles_pairs: 'Doubles · Fixed pairs',
 };
 
 /**
@@ -86,6 +88,22 @@ export function buildSessionShare({ session, games = [], members = [], url } = {
     .filter((g) => g.round === (games[0]?.round ?? 1))
     .sort((a, b) => a.ordinal - b.ordinal);
 
+  if (session.format === 'doubles_pairs') {
+    const seen = new Map();
+    for (const g of games) {
+      for (const side of [g.teamA, g.teamB]) {
+        if (side?.length !== 2) continue;
+        const key = [...side].sort().join('+');
+        if (!seen.has(key)) seen.set(key, side);
+      }
+    }
+    if (seen.size > 0) {
+      lines.push('', 'Teams');
+      let n = 1;
+      for (const side of seen.values()) lines.push(`${n++}. ${namesOf(side)}`);
+    }
+  }
+
   if (firstRound.length > 0) {
     lines.push('', 'Round 1');
     const multiCourt = (session.courts ?? 1) > 1;
@@ -120,19 +138,15 @@ export function buildSessionShare({ session, games = [], members = [], url } = {
  * @param session  the session row
  * @param games    all of its games, round robin and knockout alike
  * @param members  the club roster, for names
- * @param players  who was in the session; derived from the roster if omitted
  * @param url      link to the app
  */
-export function buildResultsShare({ session, games = [], members = [], players, url } = {}) {
+export function buildResultsShare({ session, games = [], members = [], url } = {}) {
   if (!session) return '';
 
-  const field =
-    players ??
-    (session.playerIds ?? [])
-      .map((id) => members.find((m) => m.id === id))
-      .filter(Boolean);
-
-  const bracket = resolveBracket(field, games);
+  // Entrants rather than players, so a fixed-pairs result reads "Ana & Ben"
+  // throughout instead of listing eight individuals who never played alone.
+  const { entrants } = sessionEntrants({ session, games, members });
+  const bracket = resolveBracket(entrants, games);
   const nameOf = (ids) =>
     (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & ');
 

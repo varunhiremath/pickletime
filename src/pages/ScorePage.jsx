@@ -22,7 +22,10 @@ export default function ScorePage() {
   const haptic = useHaptics();
   const [params, setParams] = useSearchParams();
 
-  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  // Entrants, not players: in a fixed-pairs session the thing that wins a game
+  // and gets seeded into a semifinal is the team. See utils/entrants.js.
+  const { entrants, teamPlay } = useSessionStore((s) => s.sessionEntrants());
+  const bracket = useMemo(() => resolveBracket(entrants, games), [entrants, games]);
 
   // Which game is open.
   //

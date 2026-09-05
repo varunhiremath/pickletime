@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { sessionEntrants } from '../utils/entrants.js';
 import { getBackend, CONNECTION } from '../sync/backend.js';
 
 // The app's live view of the shared data.
@@ -122,6 +123,18 @@ const useSessionStore = create((set, get) => ({
     const { session, members } = get();
     if (!session?.playerIds) return members;
     return session.playerIds.map((id) => members.find((m) => m.id === id)).filter(Boolean);
+  },
+
+  /**
+   * Whoever is being ranked in the current session: players in singles and
+   * americano, fixed pairs in a doubles-pairs session. Standings and the
+   * playoff bracket both work on these rather than on players, so a screen
+   * asking for entrants needs no idea which format is in play.
+   * See utils/entrants.js.
+   */
+  sessionEntrants() {
+    const { session, games, members } = get();
+    return sessionEntrants({ session, games, members });
   },
 }));
 

@@ -37,6 +37,27 @@ export function Avatar({ member, size = 28 }) {
   );
 }
 
+/**
+ * The faces of one entrant: a single avatar for a player, overlapping ones for
+ * a fixed pair.
+ *
+ * Entrants stopped being individuals when fixed-pairs doubles arrived, and
+ * three screens needed the same "who is this row" glyph. See utils/entrants.js.
+ */
+export function Faces({ ids = [], members = [], size = 24 }) {
+  if (ids.length === 0) return <Avatar size={size} />;
+  const each = ids.length > 1 ? size - 4 : size;
+  return (
+    <span className="inline-flex shrink-0 items-center">
+      {ids.map((id, i) => (
+        <span key={id} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+          <Avatar member={members.find((m) => m.id === id)} size={each} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** Avatar + name, used in match cards and roster lists. */
 export default function PlayerChip({ member, size = 26, className = '', bold = false }) {
   return (

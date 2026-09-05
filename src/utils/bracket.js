@@ -38,8 +38,16 @@ export const SLOT = {
   FINAL: 'final',
 };
 
-/** How many players the round robin has to produce for a bracket to run. */
+/** How many entrants the round robin has to produce for a bracket to run. */
 export const BRACKET_SIZE = 4;
+
+/**
+ * Stable, order-independent key for a side of a game.
+ *
+ * Lives here rather than in entrants.js so that module can depend on this one
+ * without a cycle (schedule.js already imports this file).
+ */
+export const teamKey = (ids) => [...ids].sort().join('+');
 
 // The four fixtures, in the order they are played. `seeds` names which standings
 // positions feed a slot directly; `feeds` names which earlier slots feed it.
@@ -145,7 +153,10 @@ export function buildBracketGames({ lastOrdinal = 0, lastRound = 0 } = {}) {
 /**
  * Resolve a session's bracket.
  *
- * @param players  [{ id, name }] — everyone in the session
+ * @param entrants  who is being ranked: [{ id, name, playerIds }]. In singles
+ *   that is one player each; in fixed pairs it is a team, and the bracket seeds
+ *   teams rather than individuals. `playerIds` defaults to [id], so a plain
+ *   list of players still works. See utils/entrants.js.
  * @param games    every game in the session, round robin and knockout alike
  *
  * @returns {{
@@ -159,7 +170,34 @@ export function buildBracketGames({ lastOrdinal = 0, lastRound = 0 } = {}) {
  *   complete: boolean,
  * }}
  */
-export function resolveBracket(players, games) {
+export function resolveBracket(entrants, games) {
+  const field = (entrants ?? []).map((e) => ({
+    ...e,
+    playerIds: e.playerIds ?? [e.id],
+  }));
+  const byKey = new Map(field.map((e) => [teamKey(e.playerIds), e]));
+  const byId = new Map(field.map((e) => [e.id, e]));
+
+  // Collapse each side to the single entrant that played it. computeStandings
+  // credits whatever ids sit on a side, so a pair reduced to its team key looks
+  // exactly like a player to it — one ranking implementation, both shapes.
+  const entrantOf = (ids) => {
+    if (!ids?.length) return null;
+    return byKey.get(teamKey(ids)) ?? null;
+  };
+  const collapse = (list) => {
+    const out = [];
+    for (const g of list) {
+      const a = entrantOf(g.teamA);
+      const b = entrantOf(g.teamB);
+      // A side that matches no current entrant is a fixture from before a
+      // redraw. Crediting it to nobody beats inventing a team for it.
+      if (!a || !b) continue;
+      out.push({ ...g, teamA: [a.id], teamB: [b.id] });
+    }
+    return out;
+  };
+
   const ko = knockoutGames(games);
   const bySlot = new Map(ko.map((g) => [g.slot, g]));
 
@@ -174,7 +212,12 @@ export function resolveBracket(players, games) {
 
   // Seeding uses the round robin ONLY. Counting playoff results towards the
   // table that decides the playoffs would be circular.
-  const standings = computeStandings(players, rrGames);
+  // Rows come back keyed by entrant id; carry the underlying players along so
+  // the bracket can put actual people into a semifinal.
+  const standings = computeStandings(field, collapse(rrGames)).map((row) => ({
+    ...row,
+    playerIds: byId.get(row.id)?.playerIds ?? [row.id],
+  }));
   const qualifiers = rr.complete ? standings.slice(0, BRACKET_SIZE) : [];
 
   // Fourth and fifth level on every sorted criterion means the last playoff spot
@@ -187,7 +230,7 @@ export function resolveBracket(players, games) {
   );
 
   const enabled = ko.length > 0;
-  const enoughPlayers = standings.length >= BRACKET_SIZE;
+  const enoughEntrants = standings.length >= BRACKET_SIZE;
 
   // Resolved sides accumulate as we walk the slots in play order, so the final
   // can read the semifinal winners that were worked out a moment ago.
@@ -204,7 +247,7 @@ export function resolveBracket(players, games) {
         ? { teamA: game.teamA ?? [], teamB: game.teamB ?? [] }
         : null;
 
-    const derived = deriveSides(def, { qualifiers, resolved, enoughPlayers });
+    const derived = deriveSides(def, { qualifiers, resolved, enoughEntrants });
     const teamA = stored ? stored.teamA : derived.teamA;
     const teamB = stored ? stored.teamB : derived.teamB;
 
@@ -234,10 +277,11 @@ export function resolveBracket(players, games) {
     });
   }
 
+  // A winner arrives as player ids, so look the row up by the side's key rather
+  // than by its first player — in pairs those are different things.
   const rowFor = (ids) => {
-    const id = ids?.[0];
-    if (!id) return null;
-    return standings.find((r) => r.id === id) ?? { id, name: '—' };
+    const entrant = entrantOf(ids);
+    return entrant ? standings.find((r) => r.id === entrant.id) ?? null : null;
   };
 
   const finalMatch = matches.find((m) => m.slot === SLOT.FINAL);
@@ -257,13 +301,15 @@ export function resolveBracket(players, games) {
   };
 }
 
-function deriveSides(def, { qualifiers, resolved, enoughPlayers }) {
+function deriveSides(def, { qualifiers, resolved, enoughEntrants }) {
   const empty = { teamA: [], teamB: [] };
 
   if (def.seeds) {
-    if (!enoughPlayers || qualifiers.length < BRACKET_SIZE) return empty;
+    if (!enoughEntrants || qualifiers.length < BRACKET_SIZE) return empty;
     const [i, j] = def.seeds;
-    return { teamA: [qualifiers[i].id], teamB: [qualifiers[j].id] };
+    // playerIds, not id: a semifinal is played by people, and in pairs the
+    // entrant id is a synthetic team key that nobody could render.
+    return { teamA: qualifiers[i].playerIds, teamB: qualifiers[j].playerIds };
   }
 
   const [a, b] = def.feeds;

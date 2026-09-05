@@ -38,6 +38,11 @@ session and saving a score both fail. Either re-run `schema.sql` and
 re-run and neither touches existing data: every game already in the database is
 treated as a round-robin fixture, which is what it is.
 
+Fixed-pairs doubles then added one more, `supabase/migrate-pairs.sql`: it widens
+the `format` constraint to allow `doubles_pairs`. Without it, creating a
+fixed-pairs session fails and nothing else is affected. Re-running `schema.sql`
+does the same job.
+
 ## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**
