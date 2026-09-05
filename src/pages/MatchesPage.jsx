@@ -24,7 +24,10 @@ export default function MatchesPage() {
   const [filter, setFilter] = useState('all');
   const haptic = useHaptics();
 
-  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  // Entrants, not players: in a fixed-pairs session the thing that wins a game
+  // and gets seeded into a semifinal is the team. See utils/entrants.js.
+  const { entrants, teamPlay } = useSessionStore((s) => s.sessionEntrants());
+  const bracket = useMemo(() => resolveBracket(entrants, games), [entrants, games]);
 
   // The round robin is what this list shows; the knockout stage has its own
   // section, because a semifinal with nobody in it yet is not a fixture you can

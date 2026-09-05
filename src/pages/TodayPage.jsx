@@ -10,7 +10,6 @@ import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import MatchCard from '../components/scoreboard/MatchCard.jsx';
 import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
-import { computeStandings } from '../utils/standings.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 import { buildResultsShare } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
@@ -52,10 +51,15 @@ export default function TodayPage() {
   const players = useSessionStore((s) => s.sessionPlayers());
 
   const fixtures = useMemo(() => roundRobinGames(games), [games]);
-  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  // Entrants, not players: in a fixed-pairs session the thing that wins a game
+  // and gets seeded into a semifinal is the team. See utils/entrants.js.
+  const { entrants, teamPlay } = useSessionStore((s) => s.sessionEntrants());
+  const bracket = useMemo(() => resolveBracket(entrants, games), [entrants, games]);
   const progress = bracket.rr;
-  const rows = useMemo(() => computeStandings(players, fixtures), [players, fixtures]);
-  const me = rows.find((r) => r.id === identity?.memberId);
+  const rows = bracket.standings;
+  // In a pairs session "your" row is your team's — you and your partner share
+  // one record, because you share every game.
+  const me = rows.find((r) => (r.playerIds ?? [r.id]).includes(identity?.memberId));
   const leader = rows[0]?.gp > 0 ? rows[0] : null;
 
   // What's on court: the next round-robin game without a score, and once those
@@ -95,7 +99,6 @@ export default function TodayPage() {
       session,
       games,
       members,
-      players,
       url: `${window.location.origin}${import.meta.env.BASE_URL}`,
     });
     const outcome = await shareText(text);
@@ -245,7 +248,7 @@ export default function TodayPage() {
               className="font-sans text-[11px] font-bold uppercase tracking-wider"
               style={{ color: 'var(--text-lo)' }}
             >
-              Your session
+              {teamPlay ? 'Your team' : 'Your session'}
             </h2>
             <div className="flex gap-2">
               <StatTile label="Rank" value={me.rank} />

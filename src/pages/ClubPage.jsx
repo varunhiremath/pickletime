@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle } from 'lucide-react';
 import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
@@ -11,6 +11,7 @@ import NewSessionModal from '../components/club/NewSessionModal.jsx';
 import InviteRow from '../components/club/InviteRow.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
+import { isTeamFormat } from '../utils/schedule.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
 export default function ClubPage() {
@@ -125,6 +126,33 @@ export default function ClubPage() {
     const outcome = await shareText(text);
     if (outcome === 'copied') {
       toast('Details copied — paste them into your group chat.', { type: 'success' });
+    }
+  };
+
+  /**
+   * Draw the teams again (or reshuffle any schedule).
+   *
+   * Fixed pairs are drawn when the session is created, but people drop out and
+   * turn up on the morning, so the draw has to be repeatable on the day. The
+   * backend refuses once anything has been scored — silently discarding results
+   * would be far worse than making the admin clear them deliberately.
+   */
+  const redraw = async () => {
+    const teams = isTeamFormat(session?.format);
+    const ok = await confirmDialog({
+      title: teams ? 'Redraw the teams?' : 'Reshuffle the schedule?',
+      message: teams
+        ? 'Everyone gets a new random partner and a fresh round robin. Only possible before any score is entered.'
+        : 'A new random schedule for the same players. Only possible before any score is entered.',
+      confirmLabel: teams ? 'Redraw' : 'Reshuffle',
+    });
+    if (!ok) return;
+    try {
+      await getBackend().regenerateSchedule(session.id);
+      await refresh();
+      toast(teams ? 'New teams drawn.' : 'Schedule reshuffled.', { type: 'success' });
+    } catch (err) {
+      toast(err.message ?? 'Could not redraw.', { type: 'error' });
     }
   };
 
@@ -271,6 +299,13 @@ export default function ClubPage() {
             <Button variant="secondary" full onClick={announceSession}>
               <Megaphone size={16} />
               Tell everyone
+            </Button>
+          )}
+
+          {session && isAdmin && (
+            <Button variant="secondary" full onClick={redraw}>
+              <Shuffle size={16} />
+              {isTeamFormat(session.format) ? 'Redraw teams' : 'Reshuffle schedule'}
             </Button>
           )}
 

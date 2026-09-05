@@ -4,11 +4,10 @@ import { Flame, Snowflake, Share2 } from 'lucide-react';
 import TopBar from '../components/layout/TopBar.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import FlipList from '../components/fx/FlipList.jsx';
-import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
+import { Faces } from '../components/scoreboard/PlayerChip.jsx';
 import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
-import { computeStandings } from '../utils/standings.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 import { buildResultsShare } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
@@ -38,6 +37,21 @@ function StreakBadge({ streak }) {
   );
 }
 
+/**
+ * A standings row. Individuals link to their player page; a team does not have
+ * one — it is two people, and picking one of them to link to would be a lie.
+ */
+function Row({ teamPlay, row, children, className, style }) {
+  if (teamPlay) {
+    return <div className={className} style={style}>{children}</div>;
+  }
+  return (
+    <Link to={`/players/${row.id}`} className={className} style={style}>
+      {children}
+    </Link>
+  );
+}
+
 export default function StandingsPage() {
   const { session, games, members, recentlyChanged } = useSessionStore();
   const players = useSessionStore((s) => s.sessionPlayers());
@@ -46,8 +60,13 @@ export default function StandingsPage() {
   // it: the standings are what seeds the bracket, so counting semifinals here
   // would let the bracket rewrite its own seeding.
   const fixtures = useMemo(() => roundRobinGames(games), [games]);
-  const rows = useMemo(() => computeStandings(players, fixtures), [players, fixtures]);
-  const bracket = useMemo(() => resolveBracket(players, games), [players, games]);
+  // Entrants, not players: in a fixed-pairs session the thing that wins a game
+  // and gets seeded into a semifinal is the team. See utils/entrants.js.
+  const { entrants, teamPlay } = useSessionStore((s) => s.sessionEntrants());
+  const bracket = useMemo(() => resolveBracket(entrants, games), [entrants, games]);
+  // The bracket already ranks the entrants, and this is the same table that
+  // seeds it — deriving it twice would be two chances to disagree.
+  const rows = bracket.standings;
   const progress = bracket.rr;
   const anyPlayed = progress.played > 0;
 
@@ -72,7 +91,6 @@ export default function StandingsPage() {
       session,
       games,
       members,
-      players,
       url: `${window.location.origin}${import.meta.env.BASE_URL}`,
     });
     const outcome = await shareText(text);
@@ -83,7 +101,7 @@ export default function StandingsPage() {
     }
   };
 
-  if (!session || players.length === 0) {
+  if (!session || entrants.length === 0) {
     return (
       <>
         <TopBar title="Standings" />
@@ -140,7 +158,7 @@ export default function StandingsPage() {
           >
             <span className="w-6 shrink-0" />
             <span className="flex-1 font-sans text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-lo)' }}>
-              Player
+              {teamPlay ? 'Team' : 'Player'}
             </span>
             {COLUMNS.map((c) => (
               <span
@@ -160,9 +178,10 @@ export default function StandingsPage() {
             {rows.map((row) => {
               const isFirst = row.rank === 1 && row.gp > 0;
               return (
-                <Link
+                <Row
                   key={row.id}
-                  to={`/players/${row.id}`}
+                  teamPlay={teamPlay}
+                  row={row}
                   className={`flex items-center gap-2 ${flashing.has(row.id) ? 'a-flash' : ''}`}
                   style={{
                     padding: '10px 12px',
@@ -179,7 +198,7 @@ export default function StandingsPage() {
                   </span>
 
                   <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <Avatar member={players.find((p) => p.id === row.id)} size={24} />
+                    <Faces ids={row.playerIds ?? [row.id]} members={members} size={24} />
                     <span className="min-w-0">
                       <span
                         className="block truncate font-sans text-sm font-semibold"
@@ -214,7 +233,7 @@ export default function StandingsPage() {
                     {row.diff > 0 ? '+' : ''}
                     {row.diff}
                   </span>
-                </Link>
+                </Row>
               );
             })}
           </FlipList>

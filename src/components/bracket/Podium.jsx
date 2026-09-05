@@ -1,5 +1,5 @@
 import { Trophy } from 'lucide-react';
-import { Avatar } from '../scoreboard/PlayerChip.jsx';
+import { Faces } from '../scoreboard/PlayerChip.jsx';
 
 /**
  * The result of a tournament: one champion, plus who came second and third.
@@ -12,7 +12,10 @@ import { Avatar } from '../scoreboard/PlayerChip.jsx';
 export default function Podium({ champion, runnerUp, third, members, compact = false }) {
   if (!champion) return null;
 
-  const memberById = (id) => members?.find((m) => m.id === id);
+  // A champion can be one player or a whole pair, so faces come from the
+  // entrant's players rather than from its id — a team's id is a synthetic key
+  // that matches no member. See utils/entrants.js.
+  const facesOf = (row) => (row?.playerIds ?? (row?.id ? [row.id] : []));
 
   const Placing = ({ row, medal, label }) => (
     <div className="flex min-w-0 flex-col items-center gap-0.5">
@@ -52,15 +55,19 @@ export default function Podium({ champion, runnerUp, third, members, compact = f
         Champion
       </span>
 
-      <span className="mt-1.5 flex items-center gap-2">
-        <Avatar member={memberById(champion.id)} size={compact ? 26 : 32} />
+      <span className="mt-1.5 flex max-w-full items-center gap-2 px-2">
+        <Faces ids={facesOf(champion)} members={members} size={compact ? 26 : 32} />
         <span
-          className="font-display font-extrabold"
+          className="min-w-0 font-display font-extrabold"
           style={{
-            fontSize: compact ? 26 : 34,
-            lineHeight: 1.05,
+            // A pair's name is two names joined, so it needs to be allowed to
+            // wrap and to shrink — "Ana & Ben" must not push the card wider
+            // than the phone.
+            fontSize: compact ? 22 : 28,
+            lineHeight: 1.1,
             letterSpacing: '-0.03em',
             color: 'var(--text-on-accent)',
+            overflowWrap: 'anywhere',
           }}
         >
           {champion.name}

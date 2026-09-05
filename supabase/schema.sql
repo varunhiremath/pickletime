@@ -76,7 +76,7 @@ create table if not exists public.sessions (
   club_id     uuid not null references public.clubs(id) on delete cascade,
   name        text not null default 'Session',
   date        date not null default current_date,
-  format      text not null check (format in ('singles', 'doubles_americano')),
+  format      text not null,
   player_ids  uuid[] not null default '{}',
   num_games   int  not null default 0,
   courts      int  not null default 1 check (courts >= 1),
@@ -89,6 +89,41 @@ create table if not exists public.sessions (
   imported    boolean not null default false,
   created_at  timestamptz not null default now()
 );
+
+-- Which format the session is played in. Kept as a named constraint added
+-- separately rather than inline, so widening it for a new format is an ALTER
+-- rather than a table rewrite. See supabase/migrate-pairs.sql.
+--
+--   singles           one player per side, round robin
+--   doubles_americano partners rotate every game; players are ranked
+--   doubles_pairs     partners are fixed for the session; TEAMS are ranked
+--
+-- Dropped and re-added rather than guarded with `when duplicate_object`: on a
+-- database that already has an older, narrower version of this constraint,
+-- add-and-swallow would silently keep the narrow one, and creating a session in
+-- the new format would still fail. Re-running this file has to actually widen it.
+do $$
+declare
+  v_name text;
+begin
+  select con.conname into v_name
+    from pg_constraint con
+    join pg_class rel on rel.oid = con.conrelid
+    join pg_namespace nsp on nsp.oid = rel.relnamespace
+   where nsp.nspname = 'public'
+     and rel.relname = 'sessions'
+     and con.contype = 'c'
+     and pg_get_constraintdef(con.oid) ilike '%format%'
+   limit 1;
+
+  if v_name is not null then
+    execute format('alter table public.sessions drop constraint %I', v_name);
+  end if;
+
+  alter table public.sessions
+    add constraint sessions_format_check
+    check (format in ('singles', 'doubles_americano', 'doubles_pairs'));
+end $$;
 
 -- Start time, as "HH:MM" 24-hour text. Text rather than `time` because it is
 -- only ever displayed, never compared or arithmetic'd, and a bare `time` column

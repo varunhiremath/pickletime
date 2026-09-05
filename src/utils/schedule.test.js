@@ -7,6 +7,9 @@ import {
   assignCourts,
   gamesPerPlayer,
   canRunPlayoffs,
+  generatePairs,
+  circleMethod,
+  isTeamFormat,
 } from './schedule.js';
 import { STAGE, SLOT, isRoundRobin, knockoutGames } from './bracket.js';
 
@@ -226,6 +229,104 @@ describe('generateSchedule', () => {
   });
 });
 
+describe('generatePairs', () => {
+  it('draws the field into fixed pairs and runs a round robin between them', () => {
+    const games = generatePairs(players(8), { seed: 5 });
+    expect(games).toHaveLength(6); // 4 teams → C(4,2)
+    for (const g of games) {
+      expect(g.teamA).toHaveLength(2);
+      expect(g.teamB).toHaveLength(2);
+    }
+  });
+
+  it('keeps every partnership fixed for the whole session', () => {
+    const games = generatePairs(players(8), { seed: 5 });
+    const partnerOf = new Map();
+    for (const g of games) {
+      for (const side of [g.teamA, g.teamB]) {
+        for (const id of side) {
+          const mate = side.find((x) => x !== id);
+          if (partnerOf.has(id)) expect(partnerOf.get(id)).toBe(mate);
+          else partnerOf.set(id, mate);
+        }
+      }
+    }
+    expect(partnerOf.size).toBe(8);
+  });
+
+  it('has every team meet every other exactly once', () => {
+    const games = generatePairs(players(8), { seed: 7 });
+    const key = (ids) => [...ids].sort().join('+');
+    const seen = games.map((g) => [key(g.teamA), key(g.teamB)].sort().join(' v '));
+    expect(new Set(seen).size).toBe(6);
+  });
+
+  it('never puts a player on both sides of a game', () => {
+    for (const g of generatePairs(players(10), { seed: 2 })) {
+      expect(new Set([...g.teamA, ...g.teamB]).size).toBe(4);
+    }
+  });
+
+  it('is reproducible from the seed, and different for a different one', () => {
+    expect(generatePairs(players(8), { seed: 11 })).toEqual(generatePairs(players(8), { seed: 11 }));
+    expect(generatePairs(players(8), { seed: 11 })).not.toEqual(generatePairs(players(8), { seed: 12 }));
+  });
+
+  it('refuses an odd field rather than dropping somebody from their own session', () => {
+    expect(generatePairs(players(7), { seed: 1 })).toEqual([]);
+    expect(generatePairs(players(5), { seed: 1 })).toEqual([]);
+  });
+
+  it('refuses fewer than two teams', () => {
+    expect(generatePairs(players(2), { seed: 1 })).toEqual([]);
+  });
+
+  it('sits a whole team out together when there is an odd number of teams', () => {
+    // 6 players → 3 teams → one team sits out each round.
+    const games = generatePairs(players(6), { seed: 4 });
+    for (const g of games) {
+      expect(g.byes).toHaveLength(2);
+      // The sitting-out pair is nobody who is on court.
+      for (const id of g.byes) expect([...g.teamA, ...g.teamB]).not.toContain(id);
+    }
+  });
+
+  it('gives every player the same number of games with an even number of teams', () => {
+    const counts = {};
+    for (const g of generatePairs(players(8), { seed: 6 })) {
+      for (const id of [...g.teamA, ...g.teamB]) counts[id] = (counts[id] ?? 0) + 1;
+    }
+    expect(new Set(Object.values(counts))).toEqual(new Set([3]));
+  });
+});
+
+describe('circleMethod', () => {
+  it('produces every pairing exactly once', () => {
+    const f = circleMethod(['a', 'b', 'c', 'd']);
+    expect(f).toHaveLength(6);
+    expect(new Set(f.map((x) => [x.a, x.b].sort().join('|'))).size).toBe(6);
+  });
+
+  it('rotates a bye through an odd field', () => {
+    const rounds = new Map();
+    for (const f of circleMethod(['a', 'b', 'c', 'd', 'e'])) rounds.set(f.round, f.sittingOut);
+    expect([...rounds.values()].flat().sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('returns nothing below two entries', () => {
+    expect(circleMethod([])).toEqual([]);
+    expect(circleMethod(['a'])).toEqual([]);
+  });
+});
+
+describe('isTeamFormat', () => {
+  it('is true only for fixed pairs', () => {
+    expect(isTeamFormat(FORMATS.PAIRS)).toBe(true);
+    expect(isTeamFormat(FORMATS.SINGLES)).toBe(false);
+    expect(isTeamFormat(FORMATS.AMERICANO)).toBe(false);
+  });
+});
+
 describe('canRunPlayoffs', () => {
   it('needs four singles players', () => {
     expect(canRunPlayoffs({ format: FORMATS.SINGLES, playerCount: 4 })).toBe(true);
@@ -234,6 +335,12 @@ describe('canRunPlayoffs', () => {
 
   it('is off for americano, where four seeds cannot be paired fairly', () => {
     expect(canRunPlayoffs({ format: FORMATS.AMERICANO, playerCount: 8 })).toBe(false);
+  });
+
+  it('needs four TEAMS for fixed pairs — eight players, not four', () => {
+    expect(canRunPlayoffs({ format: FORMATS.PAIRS, playerCount: 8 })).toBe(true);
+    expect(canRunPlayoffs({ format: FORMATS.PAIRS, playerCount: 6 })).toBe(false);
+    expect(canRunPlayoffs({ format: FORMATS.PAIRS, playerCount: 9 })).toBe(false);
   });
 });
 
