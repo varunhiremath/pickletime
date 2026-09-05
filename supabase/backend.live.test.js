@@ -321,6 +321,80 @@ describeLive('supabaseBackend against the live project', () => {
     });
   });
 
+  // The format constraint lives in the database, so a new format value fails
+  // against the real project and nowhere else — the unit tests happily create
+  // fixed-pairs sessions against no database at all. This is what proves
+  // supabase/migrate-pairs.sql was applied.
+  describe('fixed-pairs doubles', () => {
+    let pairsSessionId = null;
+
+    afterAll(async () => {
+      if (pairsSessionId) await supabase.from('sessions').delete().eq('id', pairsSessionId);
+    });
+
+    it('accepts doubles_pairs as a format', async () => {
+      // Adds its own eight rather than slicing the roster, so the test does not
+      // depend on what earlier blocks happened to leave behind.
+      const eight = [];
+      for (const n of ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8']) {
+        eight.push((await backend.addMember({ name: n })).id);
+      }
+      expect(eight).toHaveLength(8);
+
+      const { session, games } = await backend.createSession({
+        name: 'Live pairs session',
+        format: FORMATS.PAIRS,
+        playerIds: eight,
+        courts: 1,
+        pointsTo: 11,
+        seed: 12,
+        playoffs: true,
+      });
+      pairsSessionId = session.id;
+
+      expect(session.format).toBe(FORMATS.PAIRS);
+      expect(session.playoffs).toBe(true);
+
+      // Four teams → six round-robin games, plus the four knockout fixtures.
+      const rr = games.filter((g) => g.stage === 'rr');
+      expect(rr).toHaveLength(6);
+      expect(games.filter((g) => g.stage !== 'rr')).toHaveLength(4);
+      for (const g of rr) {
+        expect(g.teamA).toHaveLength(2);
+        expect(g.teamB).toHaveLength(2);
+      }
+    });
+
+    it('round-trips the two-player sides through the database', async () => {
+      const { games } = await backend.getSession(pairsSessionId);
+      const rr = games.filter((g) => g.stage === 'rr');
+      // uuid[] columns must come back as arrays of two, not flattened or stringified.
+      for (const g of rr) {
+        expect(Array.isArray(g.teamA)).toBe(true);
+        expect(g.teamA).toHaveLength(2);
+        expect(g.teamB).toHaveLength(2);
+      }
+      // Partners are fixed: every player has exactly one partner across the set.
+      const partner = new Map();
+      for (const g of rr) {
+        for (const side of [g.teamA, g.teamB]) {
+          expect(partner.get(side[0]) ?? side[1]).toBe(side[1]);
+          partner.set(side[0], side[1]);
+          partner.set(side[1], side[0]);
+        }
+      }
+      expect(partner.size).toBe(8);
+    });
+
+    it('scores a pairs fixture through the RPC', async () => {
+      const { games } = await backend.getSession(pairsSessionId);
+      const g = games.find((x) => x.stage === 'rr');
+      const saved = await backend.submitScore(g.id, 11, 7);
+      expect(saved).toMatchObject({ scoreA: 11, scoreB: 7, played: true });
+      expect(saved.teamA).toHaveLength(2);
+    });
+  });
+
   describe('deleting the club', () => {
     it('removes the club and cascades to its rows', async () => {
       // Something to leave behind if the cascade were broken.
