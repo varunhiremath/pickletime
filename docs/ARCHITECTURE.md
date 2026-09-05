@@ -41,7 +41,7 @@ when someone deep-links to Courtside.
 | `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
-| `bracket.js` | `STAGE`, `SLOT`, `BRACKET_SLOTS`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
+| `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `FINAL_ONLY_SLOTS`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -164,11 +164,11 @@ figures make live-updating columns jitter.
 
 ## Formats, and who gets ranked
 
-| Format | Sides | Ranked unit |
-| --- | --- | --- |
-| `singles` | one player | the player |
-| `doubles_americano` | pairs that rotate every game | the player |
-| `doubles_pairs` | pairs fixed for the session | **the team** |
+| Format | Sides | Ranked unit | Finish |
+| --- | --- | --- | --- |
+| `singles` | one player | the player | knockout bracket |
+| `doubles_americano` | pairs that rotate every game | the player | one deciding game |
+| `doubles_pairs` | pairs fixed for the session | **the team** | knockout bracket |
 
 `doubles_pairs` broke an assumption that held everywhere else: that the thing
 which wins a game is a person. With fixed partners it is the team — the team is

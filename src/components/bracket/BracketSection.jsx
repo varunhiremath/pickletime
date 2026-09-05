@@ -2,7 +2,7 @@ import { Trophy, Lock, AlertTriangle } from 'lucide-react';
 import MatchCard from '../scoreboard/MatchCard.jsx';
 import Podium from './Podium.jsx';
 import { Faces } from '../scoreboard/PlayerChip.jsx';
-import { SLOT, BRACKET_SIZE } from '../../utils/bracket.js';
+import { SLOT, BRACKET_SIZE, SHAPES } from '../../utils/bracket.js';
 
 function Heading({ children }) {
   return (
@@ -30,6 +30,9 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
   if (!bracket.enabled) return null;
 
   const { rr, matches, qualifiers, standings, tiedForLastSpot } = bracket;
+  // The Americano finish is one game. Heading it "Semifinals" and "Finals" would
+  // promise rounds that do not exist.
+  const oneGame = bracket.shape === SHAPES.FINAL_ONLY;
   const semis = matches.filter((m) => m.slot === SLOT.SF1 || m.slot === SLOT.SF2);
   const finals = matches.filter((m) => m.slot === SLOT.FINAL || m.slot === SLOT.BRONZE);
 
@@ -66,7 +69,7 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
           <Trophy size={16} />
         </span>
         <h2 className="font-display text-base font-extrabold" style={{ color: 'var(--text-hi)' }}>
-          Playoffs
+          {oneGame ? 'The final' : 'Playoffs'}
         </h2>
       </div>
 
@@ -100,11 +103,17 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
         </p>
       )}
 
-      <Heading>Semifinals</Heading>
-      {semis.map(fixture)}
+      {oneGame ? (
+        matches.map(fixture)
+      ) : (
+        <>
+          <Heading>Semifinals</Heading>
+          {semis.map(fixture)}
 
-      <Heading>Finals</Heading>
-      {finals.map(fixture)}
+          <Heading>Finals</Heading>
+          {finals.map(fixture)}
+        </>
+      )}
     </section>
   );
 }

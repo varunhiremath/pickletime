@@ -10,8 +10,9 @@ import {
   generatePairs,
   circleMethod,
   isTeamFormat,
+  playoffShape,
 } from './schedule.js';
-import { STAGE, SLOT, isRoundRobin, knockoutGames } from './bracket.js';
+import { STAGE, SLOT, SHAPES, isRoundRobin, knockoutGames } from './bracket.js';
 
 const players = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -393,8 +394,18 @@ describe('canRunPlayoffs', () => {
     expect(canRunPlayoffs({ format: FORMATS.SINGLES, playerCount: 3 })).toBe(false);
   });
 
-  it('is off for americano, where four seeds cannot be paired fairly', () => {
-    expect(canRunPlayoffs({ format: FORMATS.AMERICANO, playerCount: 8 })).toBe(false);
+  it('needs four players for the americano finish', () => {
+    expect(canRunPlayoffs({ format: FORMATS.AMERICANO, playerCount: 4 })).toBe(true);
+    expect(canRunPlayoffs({ format: FORMATS.AMERICANO, playerCount: 3 })).toBe(false);
+  });
+
+  it('names the shape each format finishes with', () => {
+    expect(playoffShape(FORMATS.SINGLES)).toBe(SHAPES.KNOCKOUT);
+    expect(playoffShape(FORMATS.PAIRS)).toBe(SHAPES.KNOCKOUT);
+    // Americano ranks individuals, so there is no standing team to seed a
+    // bracket with — the top four pair up for one deciding game instead.
+    expect(playoffShape(FORMATS.AMERICANO)).toBe(SHAPES.FINAL_ONLY);
+    expect(playoffShape('nonsense')).toBeNull();
   });
 
   it('needs four TEAMS for fixed pairs — eight players, not four', () => {
@@ -444,13 +455,23 @@ describe('generateSchedule — playoffs', () => {
   });
 
   it('refuses a bracket that cannot be filled', () => {
-    // Three players cannot produce four seeds, and americano has no bracket.
+    // Three players cannot produce four seeds.
     expect(generateSchedule({ ...opts, playerIds: players(3), playoffs: true }).every(isRoundRobin)).toBe(true);
     expect(
       generateSchedule({
-        format: FORMATS.AMERICANO, playerIds: players(8), numGames: 6, seed: 2, playoffs: true,
+        format: FORMATS.AMERICANO, playerIds: players(3), numGames: 6, seed: 2, playoffs: true,
       }).every(isRoundRobin)
     ).toBe(true);
+  });
+
+  it('gives americano a single deciding game, not a bracket', () => {
+    const games = generateSchedule({
+      format: FORMATS.AMERICANO, playerIds: players(8), numGames: 6, seed: 2, playoffs: true,
+    });
+    const ko = knockoutGames(games);
+    expect(ko).toHaveLength(1);
+    expect(ko[0].slot).toBe(SLOT.FINAL);
+    expect(ko[0].round).toBe(games.filter(isRoundRobin).at(-1).round + 1);
   });
 
   it('stamps every round-robin game as such', () => {

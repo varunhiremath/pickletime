@@ -11,7 +11,7 @@
 // Everything here is pure: ids in, games out. No DB, no DOM, no clock.
 
 import { mulberry32, shuffle } from './rng.js';
-import { STAGE, BRACKET_SIZE, buildBracketGames } from './bracket.js';
+import { STAGE, BRACKET_SIZE, SHAPES, buildBracketGames } from './bracket.js';
 
 export const FORMATS = {
   SINGLES: 'singles',
@@ -255,19 +255,27 @@ export function generateAmericano(playerIds, { numGames = 8, courts = 1, seed = 
 }
 
 /**
- * Whether a session can finish with a knockout stage.
+ * The shape of a format's finish, or null if it has none.
  *
- * Singles only, for now. The top four seeds are individuals, so a semifinal
- * between them is a singles match — which is exactly right for a singles round
- * robin and meaningless for a doubles one, where there is no principled way to
- * pair four individuals into two teams that everybody would accept as fair.
- * Rather than invent one, Americano sessions simply don't offer playoffs.
+ * Singles and fixed pairs seed a four-entrant bracket, because the thing that
+ * plays is also the thing that is ranked. Americano rotates partners, so its
+ * table ranks individuals and there is no standing team to seed — its four top
+ * seeds pair up for a single deciding game instead. See utils/bracket.js.
  */
+export function playoffShape(format) {
+  if (format === FORMATS.SINGLES || format === FORMATS.PAIRS) return SHAPES.KNOCKOUT;
+  if (format === FORMATS.AMERICANO) return SHAPES.FINAL_ONLY;
+  return null;
+}
+
+/** Whether a session can finish with a playoff at all. */
 export function canRunPlayoffs({ format, playerCount }) {
   if (format === FORMATS.SINGLES) return playerCount >= BRACKET_SIZE;
   // Fixed pairs seed the bracket by team, so it needs four TEAMS — eight
   // players — not four people.
   if (format === FORMATS.PAIRS) return playerCount >= BRACKET_SIZE * 2 && playerCount % 2 === 0;
+  // Americano needs four individuals to pair up for the final.
+  if (format === FORMATS.AMERICANO) return playerCount >= BRACKET_SIZE;
   return false;
 }
 
@@ -302,7 +310,11 @@ export function generateSchedule({
 
   if (playoffs && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
     const last = games[games.length - 1];
-    games.push(...buildBracketGames({ lastOrdinal: last.ordinal, lastRound: last.round }));
+    games.push(...buildBracketGames({
+      lastOrdinal: last.ordinal,
+      lastRound: last.round,
+      shape: playoffShape(format),
+    }));
   }
 
   // Courts are assigned across the whole schedule, so the two semifinals share

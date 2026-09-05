@@ -11,6 +11,8 @@ import {
   buildBracketGames,
   resolveBracket,
   slotLabel,
+  SHAPES,
+  shapeOf,
 } from './bracket.js';
 
 const P = [
@@ -297,5 +299,119 @@ describe('slotLabel', () => {
       expect(slotLabel(g)).toBeTruthy();
     }
     expect(BRACKET_SLOTS).toHaveLength(4);
+  });
+});
+
+describe('the Americano finish', () => {
+  // Americano ranks individuals, so the entrants are players and the final is
+  // played by two partnerships that exist for that one game only.
+  const P8 = Array.from({ length: 8 }, (_, i) => ({ id: `p${i + 1}`, name: `P${i + 1}` }));
+
+  let n = 0;
+  const rr = (a, b, sa, sb) => ({
+    ordinal: ++n, round: 1, stage: STAGE.RR, slot: null,
+    teamA: a, teamB: b, byes: [],
+    scoreA: sa ?? null, scoreB: sb ?? null, played: sa != null,
+  });
+
+  /** Rotation scored so the finishing order is p1 > p2 > ... > p8. */
+  const rotation = () => {
+    n = 0;
+    const games = [];
+    // Each player's rank is 9 - index; the stronger side always wins.
+    const strength = (ids) => Math.min(...ids.map((id) => Number(id.slice(1))));
+    const pairsOf = [
+      [['p1','p8'],['p2','p7']], [['p3','p6'],['p4','p5']],
+      [['p1','p7'],['p3','p8']], [['p2','p6'],['p4','p7']],
+      [['p1','p6'],['p5','p8']], [['p2','p5'],['p3','p7']],
+      [['p1','p5'],['p4','p8']], [['p2','p4'],['p6','p7']],
+    ];
+    for (const [a, b] of pairsOf) {
+      const aWins = strength(a) < strength(b);
+      games.push(rr(a, b, aWins ? 11 : 5, aWins ? 5 : 11));
+    }
+    return games;
+  };
+
+  const withFinal = (games) =>
+    games.concat(
+      buildBracketGames({
+        lastOrdinal: games.length,
+        lastRound: 1,
+        shape: SHAPES.FINAL_ONLY,
+      }).map((g, i) => ({ ...g, id: `ko${i}` }))
+    );
+
+  it('builds exactly one fixture', () => {
+    const built = buildBracketGames({ lastOrdinal: 8, lastRound: 3, shape: SHAPES.FINAL_ONLY });
+    expect(built).toHaveLength(1);
+    expect(built[0]).toMatchObject({ slot: SLOT.FINAL, stage: STAGE.FINAL, ordinal: 9, round: 4 });
+    expect(built[0].teamA).toEqual([]);
+  });
+
+  it('still builds the full bracket when no shape is asked for', () => {
+    expect(buildBracketGames({ lastOrdinal: 0, lastRound: 0 })).toHaveLength(4);
+  });
+
+  it('reads its shape back off the fixtures', () => {
+    expect(shapeOf(withFinal(rotation()))).toBe(SHAPES.FINAL_ONLY);
+    expect(shapeOf(rotation())).toBeNull();
+  });
+
+  it('pairs seed 1 with seed 4 against seed 2 with seed 3', () => {
+    const games = withFinal(rotation());
+    const b = resolveBracket(P8, games);
+
+    expect(b.shape).toBe(SHAPES.FINAL_ONLY);
+    expect(b.rr.complete).toBe(true);
+    expect(b.qualifiers.map((q) => q.id)).toEqual(['p1', 'p2', 'p3', 'p4']);
+
+    const final = b.matches.find((m) => m.slot === SLOT.FINAL);
+    // Balanced on paper: the best player partners the weakest qualifier.
+    expect([...final.teamA].sort()).toEqual(['p1', 'p4']);
+    expect([...final.teamB].sort()).toEqual(['p2', 'p3']);
+    expect(final.ready).toBe(true);
+  });
+
+  it('offers only the final — no semifinals, no third place', () => {
+    const b = resolveBracket(P8, withFinal(rotation()));
+    expect(b.matches).toHaveLength(1);
+    expect(b.third).toBeNull();
+  });
+
+  it('crowns the winning partnership, which is not an entrant', () => {
+    let games = withFinal(rotation());
+    const b0 = resolveBracket(P8, games);
+    const final = b0.matches.find((m) => m.slot === SLOT.FINAL);
+
+    games = games.map((g) =>
+      g.slot === SLOT.FINAL
+        ? { ...g, teamA: final.teamA, teamB: final.teamB, scoreA: 9, scoreB: 11, played: true }
+        : g
+    );
+
+    const b = resolveBracket(P8, games);
+    expect(b.complete).toBe(true);
+    // Seeds 2 and 3 took it.
+    expect([...b.champion.playerIds].sort()).toEqual(['p2', 'p3']);
+    expect(b.champion.name).toBe('P2 & P3');
+    expect([...b.runnerUp.playerIds].sort()).toEqual(['p1', 'p4']);
+    expect(b.runnerUp.name).toBe('P1 & P4');
+  });
+
+  it('stays locked while the rotation is unfinished', () => {
+    const partial = rotation().map((g, i) =>
+      i < 3 ? g : { ...g, scoreA: null, scoreB: null, played: false }
+    );
+    const b = resolveBracket(P8, withFinal(partial));
+    expect(b.rr.complete).toBe(false);
+    expect(b.matches[0].ready).toBe(false);
+  });
+
+  it('needs four players to fill it', () => {
+    const two = [P8[0], P8[1]];
+    n = 0;
+    const b = resolveBracket(two, withFinal([rr(['p1'], ['p2'], 11, 4)]));
+    expect(b.matches[0].ready).toBe(false);
   });
 });
