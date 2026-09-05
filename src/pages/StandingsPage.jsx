@@ -67,6 +67,10 @@ export default function StandingsPage() {
   // The bracket already ranks the entrants, and this is the same table that
   // seeds it — deriving it twice would be two chances to disagree.
   const rows = bracket.standings;
+  // A team name is two names joined, so it needs the width back that three
+  // one- or two-digit columns do not use. "Anand & Sudheer" elided by four
+  // pixels before this.
+  const numWidth = teamPlay ? 'w-6' : 'w-7';
   const progress = bracket.rr;
   const anyPlayed = progress.played > 0;
 
@@ -163,7 +167,7 @@ export default function StandingsPage() {
             {COLUMNS.map((c) => (
               <span
                 key={c.key}
-                className="w-7 shrink-0 text-right font-sans text-[11px] font-bold uppercase"
+                className={`${numWidth} shrink-0 text-right font-sans text-[11px] font-bold uppercase`}
                 style={{ color: 'var(--text-lo)' }}
               >
                 {c.label}
@@ -213,7 +217,7 @@ export default function StandingsPage() {
                   {COLUMNS.map((c) => (
                     <span
                       key={c.key}
-                      className="num w-7 shrink-0 text-right font-display text-sm"
+                      className={`num ${numWidth} shrink-0 text-right font-display text-sm`}
                       style={{
                         color: c.key === 'w' ? 'var(--text-hi)' : 'var(--text-lo)',
                         fontWeight: c.key === 'w' ? 700 : 500,

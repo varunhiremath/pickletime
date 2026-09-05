@@ -217,9 +217,16 @@ function Side({
   ids, members, score, won, lost, editable, value, onChange, onEnter, label, played,
 }) {
   const memberById = (id) => members.find((m) => m.id === id);
+  // Two names and a score box have to share half a phone's width. At the singles
+  // sizes "Srinath" and "Sudheer" elide, which is worse than a slightly smaller
+  // name — a partner you cannot read is not a fixture you can act on.
+  const doubles = ids.length > 1;
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2" style={{ opacity: lost ? 0.55 : 1 }}>
+    <div
+      className={`flex min-w-0 flex-1 items-center ${doubles ? 'gap-1.5' : 'gap-2'}`}
+      style={{ opacity: lost ? 0.55 : 1 }}
+    >
       {won && (
         <span
           className="a-rail shrink-0"
@@ -235,10 +242,10 @@ function Side({
           ids.map((id) => {
             const m = memberById(id);
             return (
-              <span key={id} className="flex items-center gap-1.5">
-                <Avatar member={m} size={20} />
+              <span key={id} className={`flex items-center ${doubles ? 'gap-1' : 'gap-1.5'}`}>
+                <Avatar member={m} size={doubles ? 18 : 20} />
                 <span
-                  className="truncate font-sans text-sm"
+                  className={`truncate font-sans ${doubles ? 'text-[13px]' : 'text-sm'}`}
                   style={{ fontWeight: won ? 700 : 500, color: 'var(--text-hi)' }}
                 >
                   {m?.name ?? '—'}
@@ -250,14 +257,14 @@ function Side({
       </div>
 
       {editable ? (
-        <span className="w-[58px] shrink-0">
+        <span className={`shrink-0 ${doubles ? 'w-[50px]' : 'w-[58px]'}`}>
           <ScoreInput size="sm" value={value} onChange={onChange} onEnter={onEnter} label={label} won={won} />
         </span>
       ) : (
         <span
           className="font-display num shrink-0 tabular-nums"
           style={{
-            fontSize: 28,
+            fontSize: doubles ? 25 : 28,
             fontWeight: 800,
             letterSpacing: '-0.02em',
             color: played ? 'var(--text-hi)' : 'var(--text-lo)',
