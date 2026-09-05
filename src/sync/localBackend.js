@@ -220,7 +220,7 @@ export function createLocalBackend() {
     /* ---------- sessions ---------- */
 
     async createSession({
-      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs,
+      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs, teams,
     }) {
       const club = await this.getClub();
       if (!club) throw new Error('Create a club first.');
@@ -234,6 +234,7 @@ export function createLocalBackend() {
         courts,
         seed: usedSeed,
         playoffs,
+        teams,
       });
 
       const session = {
@@ -276,7 +277,7 @@ export function createLocalBackend() {
      * Refuses once anything has been scored — silently discarding results would
      * be worse than making the admin clear them deliberately.
      */
-    async regenerateSchedule(sessionId, { seed } = {}) {
+    async regenerateSchedule(sessionId, { seed, teams } = {}) {
       const existing = await this.getSession(sessionId);
       if (!existing) throw new Error('Session not found.');
       if (existing.games.some((g) => g.played)) {
@@ -295,6 +296,7 @@ export function createLocalBackend() {
         courts: session.courts,
         seed: usedSeed,
         playoffs: session.playoffs,
+        teams,
       });
 
       const games = generated.map((g) => ({

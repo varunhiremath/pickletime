@@ -115,14 +115,11 @@ export function generateSingles(playerIds) {
  * Requires an even field: a leftover player would have nobody to partner, and
  * silently dropping them from their own session is worse than refusing.
  */
-export function generatePairs(playerIds, { seed = 1 } = {}) {
+export function generatePairs(playerIds, { seed = 1, teams: given = null } = {}) {
   if (playerIds.length < 4 || playerIds.length % 2 === 1) return [];
 
-  const rng = mulberry32(seed);
-  const drawn = shuffle(playerIds, rng);
-
-  const teams = [];
-  for (let i = 0; i < drawn.length; i += 2) teams.push([drawn[i], drawn[i + 1]]);
+  const teams = given ? normaliseTeams(given, playerIds) : drawTeams(playerIds, seed);
+  if (teams.length < 2) return [];
 
   let ordinal = 1;
   return circleMethod(teams).map(({ round, a, b, sittingOut }) =>
@@ -135,6 +132,40 @@ export function generatePairs(playerIds, { seed = 1 } = {}) {
       byes: sittingOut.flat(),
     })
   );
+}
+
+function drawTeams(playerIds, seed) {
+  const drawn = shuffle(playerIds, mulberry32(seed));
+  const teams = [];
+  for (let i = 0; i < drawn.length; i += 2) teams.push([drawn[i], drawn[i + 1]]);
+  return teams;
+}
+
+/**
+ * Validate a hand-picked set of teams against the field.
+ *
+ * Rejects the whole thing rather than repairing it. A partial fix — dropping a
+ * duplicated player, say — would silently produce a tournament nobody agreed to,
+ * and the entry points that build teams already prevent every case here; this is
+ * the backstop that makes that guarantee real rather than assumed.
+ */
+function normaliseTeams(given, playerIds) {
+  const field = new Set(playerIds);
+  const seen = new Set();
+  const teams = [];
+
+  for (const team of given) {
+    if (!Array.isArray(team) || team.length !== 2) return [];
+    for (const id of team) {
+      if (!field.has(id) || seen.has(id)) return [];
+      seen.add(id);
+    }
+    teams.push([team[0], team[1]]);
+  }
+
+  // Everybody in the field has to be on a team; a player left over would be
+  // listed as playing and then never appear in a fixture.
+  return seen.size === field.size ? teams : [];
 }
 
 /**
@@ -247,6 +278,11 @@ export function canRunPlayoffs({ format, playerCount }) {
  * robin — semifinals, a third-place game and a final. They carry no players:
  * who plays them is derived from the standings once the round robin is done.
  * See utils/bracket.js.
+ *
+ * `teams` is for fixed pairs only: pass the partnerships to use them verbatim,
+ * omit it to draw them at random from the seed. Real doubles competitions have
+ * teams that registered together, and randomly reassigning those would be the
+ * opposite of what the organiser wants.
  */
 export function generateSchedule({
   format,
@@ -255,12 +291,13 @@ export function generateSchedule({
   courts = 1,
   seed = 1,
   playoffs = false,
+  teams = null,
 }) {
   const games =
     format === FORMATS.SINGLES
       ? generateSingles(playerIds)
       : format === FORMATS.PAIRS
-        ? generatePairs(playerIds, { seed })
+        ? generatePairs(playerIds, { seed, teams })
         : generateAmericano(playerIds, { numGames, courts, seed });
 
   if (playoffs && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {

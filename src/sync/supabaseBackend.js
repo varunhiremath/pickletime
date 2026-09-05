@@ -498,7 +498,7 @@ export function createSupabaseBackend() {
     /* ---------------------------------------------------------- sessions */
 
     async createSession({
-      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs,
+      name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs, teams,
     }) {
       const clubId = await requireClubId();
       const { memberId } = await loadIdentity();
@@ -506,7 +506,7 @@ export function createSupabaseBackend() {
       const usedSeed = seed ?? randomSeed();
       const sessionId = newId();
       const generated = generateSchedule({
-        format, playerIds, numGames, courts, seed: usedSeed, playoffs,
+        format, playerIds, numGames, courts, seed: usedSeed, playoffs, teams,
       });
       const wantsPlayoffs = generated.some((g) => g.stage !== 'rr');
 
@@ -540,7 +540,7 @@ export function createSupabaseBackend() {
       return this.getSession(sessionId);
     },
 
-    async regenerateSchedule(sessionId, { seed } = {}) {
+    async regenerateSchedule(sessionId, { seed, teams } = {}) {
       const existing = await this.getSession(sessionId);
       if (!existing) throw new Error('Session not found.');
       if (existing.games.some((g) => g.played)) {
@@ -559,6 +559,7 @@ export function createSupabaseBackend() {
         courts: session.courts,
         seed: usedSeed,
         playoffs: session.playoffs,
+        teams,
       });
 
       unwrap(await supabase.from('games').delete().eq('session_id', sessionId));
