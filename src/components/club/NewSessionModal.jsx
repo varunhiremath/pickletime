@@ -4,6 +4,9 @@ import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
 import { FORMATS, gamesPerPlayer, canRunPlayoffs } from '../../utils/schedule.js';
 import { BRACKET_SIZE } from '../../utils/bracket.js';
+import TeamPicker from './TeamPicker.jsx';
+import { drawAll, pruneToField, isComplete } from '../../utils/teamDraft.js';
+import { randomSeed } from '../../utils/rng.js';
 import useSettingsStore from '../../store/settingsStore.js';
 
 const FORMAT_OPTIONS = [
@@ -16,7 +19,7 @@ const FORMAT_OPTIONS = [
   {
     value: FORMATS.PAIRS,
     title: 'Doubles · Fixed pairs',
-    desc: 'Random draw into teams, then a round robin between them.',
+    desc: 'Teams stay together all session — draw them or enter them yourself.',
     min: 4,
     evenOnly: true,
   },
@@ -79,11 +82,13 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState('');
   const [format, setFormat] = useState(settings.lastFormat);
-  const [selected, setSelected] = useState(() => new Set(members.map((m) => m.id)));
+  const [picked, setPicked] = useState(() => new Set(members.map((m) => m.id)));
   const [numGames, setNumGames] = useState(settings.lastNumGames);
   const [courts, setCourts] = useState(settings.lastCourts);
   const [pointsTo, setPointsTo] = useState(settings.lastPointsTo);
   const [playoffs, setPlayoffs] = useState(true);
+  const [teams, setTeams] = useState([]);
+  const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
 
   // Re-seed the selection every time the sheet opens. This component stays
@@ -91,20 +96,49 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   // it was on first render — anyone added afterwards would silently be left out
   // of the default selection.
   useEffect(() => {
-    if (open) setSelected(new Set(members.map((m) => m.id)));
+    if (open) setPicked(new Set(members.map((m) => m.id)));
   }, [open, members]);
 
   const playerIds = useMemo(
-    () => members.filter((m) => selected.has(m.id)).map((m) => m.id),
-    [members, selected]
+    () => members.filter((m) => picked.has(m.id)).map((m) => m.id),
+    [members, picked]
   );
+
+  // The picker sits next to the "who's playing" chips, so the field moves under
+  // it constantly. Dropping a player has to take their team with them, or the
+  // draft would fail validation with nothing on screen explaining why.
+  useEffect(() => {
+    setTeams((prev) => {
+      const pruned = pruneToField({ playerIds, teams: prev });
+      return pruned.length === prev.length ? prev : pruned;
+    });
+    setSelected((sel) => (sel && playerIds.includes(sel) ? sel : null));
+  }, [playerIds]);
+
+  // Open on a random draw: the social case is then zero taps, and the
+  // competition case is "break the ones that are wrong and re-pair them", which
+  // is less work than entering eight names from scratch.
+  //
+  // Deliberately keyed on open/format only. Re-drawing whenever the field
+  // changed would throw away hand-entered pairs the moment somebody arrives.
+  useEffect(() => {
+    if (!open) return;
+    setSelected(null);
+    setTeams(
+      format === FORMATS.PAIRS && playerIds.length >= 4 && playerIds.length % 2 === 0
+        ? drawAll({ playerIds, seed: randomSeed() })
+        : []
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, format]);
 
   const option = FORMAT_OPTIONS.find((o) => o.value === format) ?? FORMAT_OPTIONS[0];
   // Fixed pairs needs an even field — a leftover player would have nobody to
   // partner, and quietly dropping them from their own session is worse than
   // saying so before the schedule is built.
   const oddField = Boolean(option.evenOnly) && playerIds.length % 2 === 1;
-  const enough = playerIds.length >= option.min && !oddField;
+  const teamsReady = format !== FORMATS.PAIRS || isComplete(playerIds, teams);
+  const enough = playerIds.length >= option.min && !oddField && teamsReady;
   const maxCourts = Math.max(1, Math.floor(playerIds.length / (format === FORMATS.SINGLES ? 2 : 4)));
   const teamCount = Math.floor(playerIds.length / 2);
 
@@ -116,7 +150,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const wantsPlayoffs = playoffs && playoffsAvailable;
 
   const toggle = (id) => {
-    setSelected((prev) => {
+    setPicked((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -143,6 +177,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
         courts: Math.min(courts, maxCourts),
         pointsTo,
         playoffs: wantsPlayoffs,
+        teams: format === FORMATS.PAIRS ? teams : undefined,
       });
       onClose();
     } finally {
@@ -163,7 +198,9 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               }`
             : oddField
               ? 'Pick an even number of players'
-              : `Pick at least ${option.min} players`}
+              : playerIds.length < option.min
+                ? `Pick at least ${option.min} players`
+                : 'Finish pairing the teams'}
         </Button>
       }
     >
@@ -282,7 +319,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
           </span>
           <div className="flex flex-wrap gap-2">
             {members.map((m) => {
-              const active = selected.has(m.id);
+              const active = picked.has(m.id);
               return (
                 <button
                   key={m.id}
@@ -327,6 +364,19 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
           />
           <Stepper label="Points to" value={pointsTo} onChange={setPointsTo} min={1} max={31} />
         </div>
+
+        {format === FORMATS.PAIRS && playerIds.length >= 4 && !oddField && (
+          <TeamPicker
+            playerIds={playerIds}
+            members={members}
+            teams={teams}
+            selected={selected}
+            onChange={({ teams: next, selected: sel }) => {
+              setTeams(next);
+              setSelected(sel);
+            }}
+          />
+        )}
 
         {/* Playoffs. Singles only: the four seeds are individuals, so a
             semifinal between them is a singles match, and there is no fair way
@@ -394,10 +444,10 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               </>
             ) : enough ? (
               <>
-                <strong style={{ color: 'var(--text-hi)' }}>{teamCount} teams</strong>, drawn at
-                random, playing {(teamCount * (teamCount - 1)) / 2} games
+                <strong style={{ color: 'var(--text-hi)' }}>{teamCount} teams</strong> playing{' '}
+                {(teamCount * (teamCount - 1)) / 2} games
                 {wantsPlayoffs ? ' plus four playoff games' : ''}. Partners are fixed all session —
-                you can redraw from the Club tab before anyone scores.
+                you can change the teams from the Club tab until someone scores.
               </>
             ) : (
               <>Pick at least four players.</>

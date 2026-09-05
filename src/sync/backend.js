@@ -27,7 +27,9 @@
 //     mintInvite(memberId)             -> { code, invite }   (code shown once)
 //     revokeInvite(memberId)
 //     createSession(config)            -> { session, games }
-//     regenerateSchedule(sessionId, { seed }) -> { session, games }
+//     regenerateSchedule(sessionId, { seed, teams }) -> { session, games }
+//       `teams` is fixed-pairs only: pass partnerships to set them explicitly,
+//       omit to draw them at random. See utils/schedule.js.
 //     submitScore(gameId, scoreA, scoreB, teams?) -> game
 //       `teams` is { teamA, teamB } and applies only to a knockout fixture,
 //       whose line-up is not known until the round robin ends. See

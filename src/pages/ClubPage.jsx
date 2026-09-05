@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users } from 'lucide-react';
 import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
@@ -8,6 +8,7 @@ import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
 import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import NewSessionModal from '../components/club/NewSessionModal.jsx';
+import EditTeamsModal from '../components/club/EditTeamsModal.jsx';
 import InviteRow from '../components/club/InviteRow.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
@@ -21,6 +22,7 @@ export default function ClubPage() {
   const isAdmin = useSessionStore((s) => s.isAdmin());
   const inviteFor = useSessionStore((s) => s.inviteFor);
   const [sessionModal, setSessionModal] = useState(false);
+  const [teamsModal, setTeamsModal] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
   /* ---------- club setup (first run) ---------- */
@@ -130,29 +132,33 @@ export default function ClubPage() {
   };
 
   /**
-   * Draw the teams again (or reshuffle any schedule).
-   *
-   * Fixed pairs are drawn when the session is created, but people drop out and
-   * turn up on the morning, so the draw has to be repeatable on the day. The
-   * backend refuses once anything has been scored — silently discarding results
-   * would be far worse than making the admin clear them deliberately.
+   * Reshuffle a non-team schedule. Teams have their own editor — a blind
+   * re-randomise is the wrong gesture once partnerships can be chosen.
    */
-  const redraw = async () => {
-    const teams = isTeamFormat(session?.format);
+  const reshuffle = async () => {
     const ok = await confirmDialog({
-      title: teams ? 'Redraw the teams?' : 'Reshuffle the schedule?',
-      message: teams
-        ? 'Everyone gets a new random partner and a fresh round robin. Only possible before any score is entered.'
-        : 'A new random schedule for the same players. Only possible before any score is entered.',
-      confirmLabel: teams ? 'Redraw' : 'Reshuffle',
+      title: 'Reshuffle the schedule?',
+      message: 'A new random schedule for the same players. Only possible before any score is entered.',
+      confirmLabel: 'Reshuffle',
     });
     if (!ok) return;
     try {
       await getBackend().regenerateSchedule(session.id);
       await refresh();
-      toast(teams ? 'New teams drawn.' : 'Schedule reshuffled.', { type: 'success' });
+      toast('Schedule reshuffled.', { type: 'success' });
     } catch (err) {
-      toast(err.message ?? 'Could not redraw.', { type: 'error' });
+      toast(err.message ?? 'Could not reshuffle.', { type: 'error' });
+    }
+  };
+
+  /** Apply hand-picked (or freshly drawn) teams to the live session. */
+  const saveTeams = async (teams) => {
+    try {
+      await getBackend().regenerateSchedule(session.id, { teams });
+      await refresh();
+      toast('Teams updated.', { type: 'success' });
+    } catch (err) {
+      toast(err.message ?? 'Could not update the teams.', { type: 'error' });
     }
   };
 
@@ -303,9 +309,13 @@ export default function ClubPage() {
           )}
 
           {session && isAdmin && (
-            <Button variant="secondary" full onClick={redraw}>
-              <Shuffle size={16} />
-              {isTeamFormat(session.format) ? 'Redraw teams' : 'Reshuffle schedule'}
+            <Button
+              variant="secondary"
+              full
+              onClick={() => (isTeamFormat(session.format) ? setTeamsModal(true) : reshuffle())}
+            >
+              {isTeamFormat(session.format) ? <Users size={16} /> : <Shuffle size={16} />}
+              {isTeamFormat(session.format) ? 'Edit teams' : 'Reshuffle schedule'}
             </Button>
           )}
 
@@ -461,6 +471,17 @@ export default function ClubPage() {
         members={members}
         onCreate={createSession}
       />
+
+      {session && (
+        <EditTeamsModal
+          open={teamsModal}
+          onClose={() => setTeamsModal(false)}
+          session={session}
+          games={games}
+          members={members}
+          onSave={saveTeams}
+        />
+      )}
     </>
   );
 }

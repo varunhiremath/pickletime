@@ -40,6 +40,7 @@ when someone deep-links to Courtside.
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
 | `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
+| `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `BRACKET_SLOTS`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -167,7 +168,7 @@ figures make live-updating columns jitter.
 | --- | --- | --- |
 | `singles` | one player | the player |
 | `doubles_americano` | pairs that rotate every game | the player |
-| `doubles_pairs` | pairs fixed for the session, drawn at random | **the team** |
+| `doubles_pairs` | pairs fixed for the session | **the team** |
 
 `doubles_pairs` broke an assumption that held everywhere else: that the thing
 which wins a game is a person. With fixed partners it is the team — the team is
@@ -190,9 +191,22 @@ them in first-appearance order.
 what lets one `computeStandings` serve both shapes: a pair reduced to its team
 key looks exactly like a player to it.
 
-The draw is seeded like every other schedule, so the same seed reproduces the
-same teams. **Redraw teams** on the Club tab is `regenerateSchedule` with a fresh
-seed; it refuses once anything has been scored.
+**Teams can be drawn or entered.** A social morning wants a random draw; a real
+doubles competition is the other way round, because pairs register together. Both
+go through the same picker (`components/club/TeamPicker.jsx`, logic in
+`utils/teamDraft.js`), which opens on a random draw and lets any pairing be
+broken and re-made — in practice a session is usually both, with a few pairs who
+came together and the rest made up on the day.
+
+`generateSchedule({ teams })` uses given partnerships verbatim and ignores the
+seed; omitting `teams` draws them from the seed as before. Hand-entered teams are
+validated rather than repaired — a duplicated or missing player rejects the whole
+set, because a partial fix would silently produce a tournament nobody agreed to.
+
+**Edit teams** on the Club tab re-enters the same picker for a live session,
+seeded from `teamsFromGames`, and applies the result through
+`regenerateSchedule(id, { teams })`. It refuses once anything has been scored, and
+says so *before* the work rather than after it.
 
 ## The knockout stage
 

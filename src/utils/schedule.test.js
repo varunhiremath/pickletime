@@ -300,6 +300,66 @@ describe('generatePairs', () => {
   });
 });
 
+describe('generatePairs with teams picked by hand', () => {
+  const IDS = players(8);
+  const TEAMS = [['p1','p2'],['p3','p4'],['p5','p6'],['p7','p8']];
+  const key = (ids) => [...ids].sort().join('+');
+  const teamsOf = (games) => {
+    const s = new Set();
+    for (const g of games) { s.add(key(g.teamA)); s.add(key(g.teamB)); }
+    return [...s].sort();
+  };
+
+  it('uses the given partnerships verbatim', () => {
+    const games = generatePairs(IDS, { seed: 1, teams: TEAMS });
+    expect(teamsOf(games)).toEqual(TEAMS.map(key).sort());
+  });
+
+  it('ignores the seed entirely when teams are given', () => {
+    const a = generatePairs(IDS, { seed: 1, teams: TEAMS });
+    const b = generatePairs(IDS, { seed: 999, teams: TEAMS });
+    expect(a).toEqual(b);
+  });
+
+  it('still produces a full round robin between them', () => {
+    const games = generatePairs(IDS, { teams: TEAMS });
+    expect(games).toHaveLength(6);
+    const meetings = games.map((g) => [key(g.teamA), key(g.teamB)].sort().join(' v '));
+    expect(new Set(meetings).size).toBe(6);
+  });
+
+  it('refuses a player listed on two teams', () => {
+    expect(generatePairs(IDS, { teams: [['p1','p2'],['p2','p3'],['p4','p5'],['p6','p7']] })).toEqual([]);
+  });
+
+  it('refuses a team that is not a pair', () => {
+    expect(generatePairs(IDS, { teams: [['p1','p2','p3'],['p4','p5'],['p6','p7'],['p8']] })).toEqual([]);
+  });
+
+  it('refuses somebody who is not in the field', () => {
+    expect(generatePairs(IDS, { teams: [['p1','stranger'],['p3','p4'],['p5','p6'],['p7','p8']] })).toEqual([]);
+  });
+
+  it('refuses a field with somebody left unpaired', () => {
+    // Seven of the eight are on a team; p8 would be listed as playing and never
+    // appear in a fixture.
+    expect(generatePairs(IDS, { teams: [['p1','p2'],['p3','p4'],['p5','p6']] })).toEqual([]);
+  });
+
+  it('falls back to a random draw when no teams are given', () => {
+    const games = generatePairs(IDS, { seed: 3 });
+    expect(games).toHaveLength(6);
+  });
+
+  it('reaches generateSchedule intact', () => {
+    const games = generateSchedule({
+      format: FORMATS.PAIRS, playerIds: IDS, seed: 77, teams: TEAMS, playoffs: true,
+    });
+    expect(teamsOf(games.filter(isRoundRobin))).toEqual(TEAMS.map(key).sort());
+    expect(knockoutGames(games)).toHaveLength(4);
+  });
+});
+
 describe('circleMethod', () => {
   it('produces every pairing exactly once', () => {
     const f = circleMethod(['a', 'b', 'c', 'd']);
