@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, Snowflake, Share2, GitBranch } from 'lucide-react';
+import { Flame, Snowflake, Share2, Image as ImageIcon } from 'lucide-react';
 import TopBar from '../components/layout/TopBar.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import FlipList from '../components/fx/FlipList.jsx';
@@ -9,8 +9,8 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
-import { buildResultsShare, formatSessionDate } from '../utils/sessionShare.js';
-import { renderBracketPng } from '../utils/bracketImage.js';
+import { buildResultsShare, buildResultsCaption, formatSessionDate } from '../utils/sessionShare.js';
+import { renderResultsPng } from '../utils/resultsImage.js';
 import { shareText, shareFile } from '../utils/share.js';
 import { toast } from '../store/uiStore.js';
 
@@ -90,51 +90,59 @@ export default function StandingsPage() {
     return ids;
   }, [recentlyChanged, fixtures]);
 
+  const appUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
+
   /**
-   * Post the results to the group chat. Same reasoning as the session
-   * announcement on the Club tab: the app cannot send a notification, so the
-   * chat is where results actually reach people who weren't there.
+   * Post the results to the group chat, as a picture.
+   *
+   * The picture is the default because it is what people actually look at in a
+   * group chat. It carries the whole result — podium, bracket and table — so it
+   * is a replacement for the message rather than a decoration on it.
    */
   const shareResults = async () => {
-    const text = buildResultsShare({
-      session,
-      games,
-      members,
-      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    const png = await renderResultsPng({
+      bracket,
+      nameOf: (ids) => (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & '),
+      title: session.name,
+      subtitle: [formatSessionDate(session.date), club?.name].filter(Boolean).join(' · '),
+      url: appUrl,
     });
-    const outcome = await shareText(text);
-    if (outcome === 'copied') {
-      toast('Results copied — paste them into your group chat.', { type: 'success' });
+
+    // Drawing can fail on a browser that refuses toBlob. Falling back to the
+    // text is better than telling someone their results cannot be shared.
+    if (!png) {
+      await shareResultsText();
+      return;
+    }
+
+    const file = new File([png], `${slug(session.name)}-results.png`, { type: 'image/png' });
+    const outcome = await shareFile(file, {
+      title: `${session.name} — results`,
+      // The link the picture cannot carry. See utils/share.js.
+      text: buildResultsCaption({ session, url: appUrl, champion: bracket.champion?.name }),
+    });
+    if (outcome === 'downloaded') {
+      toast('Image saved, link copied — paste them into your group chat.', { type: 'success' });
     } else if (outcome === 'failed') {
       toast('Could not share the results.', { type: 'error' });
     }
   };
 
   /**
-   * Post the bracket as a picture.
+   * The same results as text.
    *
-   * Its own button rather than an attachment on the results message: iOS drops
-   * the text when a share carries a file, so bundling them would quietly lose
-   * the scores. See utils/share.js.
+   * Kept, and kept separate, for two reasons: a picture has no tappable link,
+   * and iOS drops the text field when a share carries a file — so bundling the
+   * two would silently lose whichever one the phone decided to ignore.
    */
-  const shareBracket = async () => {
-    const png = await renderBracketPng({
-      bracket,
-      nameOf: (ids) => (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & '),
-      title: session.name,
-      subtitle: [formatSessionDate(session.date), club?.name].filter(Boolean).join(' · '),
-    });
-    if (!png) {
-      toast('Nothing to draw yet — play a playoff game first.', { type: 'info' });
-      return;
-    }
-
-    const file = new File([png], `${slug(session.name)}-bracket.png`, { type: 'image/png' });
-    const outcome = await shareFile(file, { title: `${session.name} — bracket` });
-    if (outcome === 'downloaded') {
-      toast('Bracket saved to your downloads.', { type: 'success' });
+  const shareResultsText = async () => {
+    const outcome = await shareText(
+      buildResultsShare({ session, games, members, url: appUrl })
+    );
+    if (outcome === 'copied') {
+      toast('Results copied — paste them into your group chat.', { type: 'success' });
     } else if (outcome === 'failed') {
-      toast('Could not share the bracket.', { type: 'error' });
+      toast('Could not share the results.', { type: 'error' });
     }
   };
 
@@ -275,19 +283,20 @@ export default function StandingsPage() {
             })}
           </FlipList>
 
-          <div className="mt-5 flex flex-col gap-2">
-            <Button variant={bracket.complete ? 'primary' : 'secondary'} full onClick={shareResults}>
-              <Share2 size={16} />
+          <div className="mt-5 flex flex-col items-center gap-3">
+            <Button variant="primary" full onClick={shareResults}>
+              <ImageIcon size={16} />
               {bracket.complete ? 'Share the final results' : 'Share results so far'}
             </Button>
-            {/* Only once there is a bracket with something in it — a picture of
-                four empty fixtures tells nobody anything. */}
-            {bracket.matches.some((m) => m.played) && (
-              <Button variant="secondary" full onClick={shareBracket}>
-                <GitBranch size={16} />
-                Share the bracket as a picture
-              </Button>
-            )}
+            {/* Quiet, because the picture is the answer for almost everyone —
+                but a picture has no tappable link, so the text stays reachable. */}
+            <button
+              onClick={shareResultsText}
+              className="flex items-center gap-1.5 font-sans text-[13px] font-semibold"
+              style={{ color: 'var(--text-lo)' }}
+            >
+              <Share2 size={14} /> Share as text instead
+            </button>
           </div>
 
           <p className="mt-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>

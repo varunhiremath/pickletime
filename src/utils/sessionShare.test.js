@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   formatSessionDate,
   formatSessionTime,
+  formatLabel,
   buildSessionShare,
+  buildSessionCaption,
+  buildResultsCaption,
   buildResultsShare,
 } from './sessionShare.js';
 
@@ -212,6 +215,78 @@ describe('buildSessionShare', () => {
   it('is empty with no session', () => {
     expect(buildSessionShare({ session: null })).toBe('');
     expect(buildSessionShare()).toBe('');
+  });
+});
+
+describe('formatLabel', () => {
+  it('names each format', () => {
+    expect(formatLabel('singles')).toBe('Singles round robin');
+    expect(formatLabel('doubles_americano')).toBe('Doubles · Americano');
+    // The Club tab used to call every non-singles session Americano, so a
+    // fixed-pairs morning was labelled as the wrong format where it was set up.
+    expect(formatLabel('doubles_pairs')).toBe('Doubles · Fixed pairs');
+  });
+
+  it('falls back to the raw value rather than guessing', () => {
+    expect(formatLabel('something_new')).toBe('something_new');
+    expect(formatLabel()).toBe('');
+  });
+});
+
+describe('captions', () => {
+  const SESSION = {
+    name: 'Sunday Social', date: '2026-08-09', startTime: '09:00',
+    format: 'doubles_pairs', numGames: 6, pointsTo: 11, playerIds: ['a', 'b', 'c', 'd'],
+  };
+  const URL = 'https://example.test/pickletime/';
+
+  it('leads the results caption with the session and the winner', () => {
+    const text = buildResultsCaption({ session: SESSION, url: URL, champion: 'Ana & Ben' });
+    expect(text).toContain('🏆 Sunday Social — Sun 9 Aug, 9:00 am');
+    expect(text).toContain('🥇 Ana & Ben');
+  });
+
+  it('carries the link, which is the whole reason the caption exists', () => {
+    expect(buildResultsCaption({ session: SESSION, url: URL }))
+      .toContain('Full results: https://example.test/pickletime/');
+    expect(buildSessionCaption({ session: SESSION, url: URL }))
+      .toContain('Full schedule: https://example.test/pickletime/');
+  });
+
+  it('stays short — the picture already shows the detail', () => {
+    // Repeating the table beside an image of the table is noise in a chat.
+    const text = buildResultsCaption({ session: SESSION, url: URL, champion: 'Ana & Ben' });
+    expect(text.split('\n').filter(Boolean)).toHaveLength(3);
+    expect(text).not.toMatch(/\d+W \d+L/);
+  });
+
+  it('names the format on a session caption', () => {
+    expect(buildSessionCaption({ session: SESSION, url: URL }))
+      .toContain('Doubles · Fixed pairs · 6 games · to 11');
+  });
+
+  it('says "1 game", not "1 games"', () => {
+    // Four players in fixed pairs is two teams and therefore one game.
+    expect(buildSessionCaption({ session: { ...SESSION, numGames: 1 }, url: URL }))
+      .toContain('1 game ·');
+  });
+
+  it('omits the winner line when there is no champion yet', () => {
+    const text = buildResultsCaption({ session: SESSION, url: URL });
+    expect(text).not.toContain('🥇');
+    expect(text).not.toContain('undefined');
+  });
+
+  it('omits the link line entirely when there is no url', () => {
+    expect(buildResultsCaption({ session: SESSION })).not.toContain('Full results');
+    expect(buildSessionCaption({ session: SESSION })).not.toContain('Full schedule');
+  });
+
+  it('returns nothing without a session', () => {
+    expect(buildResultsCaption({})).toBe('');
+    expect(buildSessionCaption({})).toBe('');
+    expect(buildResultsCaption()).toBe('');
+    expect(buildSessionCaption()).toBe('');
   });
 });
 

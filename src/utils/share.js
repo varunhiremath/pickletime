@@ -41,31 +41,58 @@ export async function shareText(text) {
 }
 
 /**
- * Hand a file — in practice a PNG of the bracket — to the share sheet.
+ * Hand a picture — and the caption that goes with it — to the share sheet.
  *
- * Kept separate from shareText() rather than folded into it, because iOS
- * quietly drops the `text` field when files are attached. Sharing both at once
- * would silently lose the results message on half the club's phones, so the app
- * offers the two as two buttons and each one does exactly what it says.
+ * The caption carries the link, which is the one thing a picture cannot: an
+ * image posted on its own is a dead end for anyone who wants to open the app.
+ *
+ * Sent as one payload where the platform allows it. Android does, and puts both
+ * into WhatsApp together. iOS is known to drop `text` when files are attached —
+ * which is survivable rather than silent, because the link is also drawn into
+ * the image's footer, so nothing is lost that the picture does not already say.
+ *
+ * Payloads are tried widest-first and each is offered to canShare() before it
+ * is used: some platforms accept files, and accept text, but reject the two
+ * together, and calling share() with a payload canShare() rejects throws.
  *
  * @returns 'shared' | 'dismissed' | 'downloaded' | 'failed'
  */
-export async function shareFile(file, { title } = {}) {
+export async function shareFile(file, { title, text } = {}) {
   if (!file) return 'failed';
 
   const nav = typeof navigator === 'undefined' ? null : navigator;
   // canShare({files}) is the only honest test. `navigator.share` existing says
   // nothing about whether this device will accept an attachment.
-  if (nav?.share && nav.canShare?.({ files: [file] })) {
-    try {
-      await nav.share({ files: [file], title });
-      return 'shared';
-    } catch (err) {
-      if (err?.name === 'AbortError') return 'dismissed';
+  if (nav?.share && nav.canShare) {
+    const payloads = [];
+    if (text) payloads.push({ files: [file], text, title });
+    payloads.push({ files: [file], title });
+
+    for (const payload of payloads) {
+      if (!nav.canShare(payload)) continue;
+      try {
+        await nav.share(payload);
+        return 'shared';
+      } catch (err) {
+        if (err?.name === 'AbortError') return 'dismissed';
+        // A real failure on a payload the platform said it could take. Trying a
+        // narrower one is unlikely to help, so fall through to the download.
+        break;
+      }
     }
   }
 
-  return download(file);
+  const outcome = download(file);
+  // The picture is in the downloads folder and the caption would otherwise be
+  // gone, so put it somewhere it can still be pasted.
+  if (outcome === 'downloaded' && text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Not fatal — the image still saved, and the link is drawn on it.
+    }
+  }
+  return outcome;
 }
 
 /** Desktop's answer to a share sheet: put it in the downloads folder. */

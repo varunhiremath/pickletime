@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus } from 'lucide-react';
-import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
-import { shareText } from '../utils/share.js';
+import {
+  buildSessionShare, buildSessionCaption, formatSessionDate, formatSessionTime, formatLabel,
+} from '../utils/sessionShare.js';
+import { renderSessionPng } from '../utils/sessionImage.js';
+import { shareText, shareFile } from '../utils/share.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
@@ -15,6 +18,10 @@ import { getBackend } from '../sync/backend.js';
 import { isTeamFormat } from '../utils/schedule.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
+/** "Sunday Doubles" → "sunday-doubles", for a filename people can find again. */
+const slug = (name) =>
+  (name ?? 'session').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+
 export default function ClubPage() {
   const { club, members, sessions, session, games, identity, remote, canPublish } =
     useSessionStore();
@@ -24,6 +31,7 @@ export default function ClubPage() {
   const [sessionModal, setSessionModal] = useState(false);
   const [teamsModal, setTeamsModal] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const appUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
   // The last admin cannot hand the job back — there would be nobody left who
   // could start a session, and no way to appoint one.
   const adminCount = members.filter((m) => m.role === 'admin').length;
@@ -155,15 +163,47 @@ export default function ClubPage() {
    * this is how people actually find out a session exists.
    */
   const announceSession = async () => {
-    const text = buildSessionShare({
+    const png = await renderSessionPng({
       session,
       games,
       members,
-      url: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      clubName: club.name,
+      url: appUrl,
     });
-    const outcome = await shareText(text);
+
+    // A browser that refuses toBlob still gets the message out.
+    if (!png) {
+      await announceSessionText();
+      return;
+    }
+
+    const file = new File([png], `${slug(session.name)}.png`, { type: 'image/png' });
+    const outcome = await shareFile(file, {
+      title: session.name,
+      // The link the picture cannot carry. See utils/share.js.
+      text: buildSessionCaption({ session, url: appUrl }),
+    });
+    if (outcome === 'downloaded') {
+      toast('Image saved, link copied — paste them into your group chat.', { type: 'success' });
+    } else if (outcome === 'failed') {
+      toast('Could not share the session.', { type: 'error' });
+    }
+  };
+
+  /**
+   * The same announcement as text.
+   *
+   * A picture has no tappable link, and iOS drops the text field when a share
+   * carries a file — so the two are offered separately rather than together.
+   */
+  const announceSessionText = async () => {
+    const outcome = await shareText(
+      buildSessionShare({ session, games, members, url: appUrl })
+    );
     if (outcome === 'copied') {
       toast('Details copied — paste them into your group chat.', { type: 'success' });
+    } else if (outcome === 'failed') {
+      toast('Could not share the session.', { type: 'error' });
     }
   };
 
@@ -325,8 +365,10 @@ export default function ClubPage() {
                     .join(', ')}
                 </p>
                 <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                  {session.format === 'singles' ? 'Singles round robin' : 'Doubles · Americano'} ·{' '}
-                  {session.numGames} games · to {session.pointsTo}
+                  {/* Was hardcoded to Americano for every non-singles session,
+                      so a fixed-pairs morning was labelled as the wrong format
+                      on the one screen that sets it up. */}
+                  {formatLabel(session.format)} · {session.numGames} games · to {session.pointsTo}
                 </p>
               </div>
               <Chip tone={session.status === 'final' ? 'neutral' : 'optic'}>{session.status}</Chip>
@@ -338,10 +380,19 @@ export default function ClubPage() {
           )}
 
           {session && (
-            <Button variant="secondary" full onClick={announceSession}>
-              <Megaphone size={16} />
-              Tell everyone
-            </Button>
+            <div className="flex flex-col items-center gap-2">
+              <Button variant="secondary" full onClick={announceSession}>
+                <Megaphone size={16} />
+                Tell everyone
+              </Button>
+              <button
+                onClick={announceSessionText}
+                className="font-sans text-[13px] font-semibold"
+                style={{ color: 'var(--text-lo)' }}
+              >
+                Send as text instead
+              </button>
+            </div>
           )}
 
           {session && isAdmin && (

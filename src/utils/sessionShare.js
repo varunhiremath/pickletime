@@ -50,45 +50,103 @@ export function formatSessionTime(value) {
   return `${hour12}:${String(minutes).padStart(2, '0')} ${suffix}`;
 }
 
-const FORMAT_LABEL = {
+/** How a format is named wherever it is shown. Exported so there is one list. */
+export const FORMAT_LABEL = {
   singles: 'Singles round robin',
   doubles_americano: 'Doubles · Americano',
   doubles_pairs: 'Doubles · Fixed pairs',
 };
 
-/**
- * Build the announcement.
- *
- * @param session  the session row
- * @param games    its games (only round 1 is listed — the rest rotates anyway)
- * @param members  the club roster, for names
- * @param url      link to the app
- */
-export function buildSessionShare({ session, games = [], members = [], url } = {}) {
-  if (!session) return '';
+/** The format's name, falling back to the raw value rather than to a guess. */
+export const formatLabel = (format) => FORMAT_LABEL[format] ?? format ?? '';
 
-  const nameOf = (id) => members.find((m) => m.id === id)?.name ?? '—';
-  const namesOf = (ids) => (ids ?? []).map(nameOf).join(' & ');
+/**
+ * The caption that travels with a shared picture.
+ *
+ * Deliberately two lines. The card already shows the teams, the scores and the
+ * table, so repeating them here would be noise in the chat — but a picture
+ * cannot carry a tappable link, and that is the whole job of this text.
+ *
+ * @param session   the session row
+ * @param url       link to the app
+ * @param headline  optional extra first-line detail, e.g. who won
+ * @param icon      the emoji to lead with
+ * @param linkLabel what the link is for
+ */
+function caption({ session, url, headline, icon, linkLabel }) {
+  if (!session) return '';
 
   const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
     .filter(Boolean)
     .join(', ');
 
-  const lines = [`🥒 ${session.name}${when ? ` — ${when}` : ''}`];
+  const lines = [`${icon} ${session.name}${when ? ` — ${when}` : ''}`];
+  if (headline) lines.push(headline);
+  if (url) lines.push('', `${linkLabel}: ${url}`);
+  return lines.join('\n');
+}
 
-  const details = [FORMAT_LABEL[session.format] ?? session.format];
+/** Caption for the results picture. `champion` is a name, when there is one. */
+export function buildResultsCaption({ session, url, champion } = {}) {
+  return caption({
+    session,
+    url,
+    // 🥇 rather than a second 🏆: the trophy is already the session's icon on
+    // the line above, and repeating it makes the two lines read as one thing.
+    headline: champion ? `🥇 ${champion}` : null,
+    icon: '🏆',
+    linkLabel: 'Full results',
+  });
+}
+
+/** Caption for the session announcement picture. */
+export function buildSessionCaption({ session, url } = {}) {
+  const a = announcement({ session });
+  return caption({
+    session,
+    url,
+    headline: a?.details?.length ? a.details.join(' · ') : null,
+    icon: '🥒',
+    linkLabel: 'Full schedule',
+  });
+}
+
+/**
+ * Everything an announcement says, as data.
+ *
+ * Extracted so the message and the picture (utils/sessionImage.js) are two
+ * renderings of one derivation. When they each worked it out for themselves
+ * they could disagree, and a chat with a picture saying one thing and a caption
+ * saying another is worse than either alone.
+ *
+ * @returns {{
+ *   name, when, details: string[], teams: string[][],
+ *   round1: {court, teamA, teamB}[], multiCourt, byes: string[], playing
+ * }}
+ */
+export function announcement({ session, games = [] } = {}) {
+  if (!session) return null;
+
+  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
+    .filter(Boolean)
+    .join(', ');
+
+  const details = [formatLabel(session.format)];
   if (session.format !== 'singles' && session.numGames) {
-    details.push(`${session.numGames} games`);
+    // Four players in fixed pairs is two teams and therefore one game, which
+    // read as "1 games".
+    details.push(`${session.numGames} game${session.numGames === 1 ? '' : 's'}`);
   }
   if (session.pointsTo) details.push(`to ${session.pointsTo}`);
-  lines.push(details.join(' · '));
 
   // Round 1 only. Later rounds depend on who is still rotating, and a wall of
   // fixtures in a group chat is not read by anyone.
-  const firstRound = games
+  const round1 = games
     .filter((g) => g.round === (games[0]?.round ?? 1))
-    .sort((a, b) => a.ordinal - b.ordinal);
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((g) => ({ court: g.court, teamA: g.teamA ?? [], teamB: g.teamB ?? [] }));
 
+  const teams = [];
   if (session.format === 'doubles_pairs') {
     const seen = new Map();
     for (const g of games) {
@@ -98,27 +156,53 @@ export function buildSessionShare({ session, games = [], members = [], url } = {
         if (!seen.has(key)) seen.set(key, side);
       }
     }
-    if (seen.size > 0) {
-      lines.push('', 'Teams');
-      let n = 1;
-      for (const side of seen.values()) lines.push(`${n++}. ${namesOf(side)}`);
-    }
+    teams.push(...seen.values());
   }
 
-  if (firstRound.length > 0) {
+  return {
+    name: session.name,
+    when,
+    details,
+    teams,
+    round1,
+    multiCourt: (session.courts ?? 1) > 1,
+    byes: games.filter((g) => g.round === (games[0]?.round ?? 1))[0]?.byes ?? [],
+    playing: session.playerIds?.length ?? 0,
+  };
+}
+
+/**
+ * Build the announcement message.
+ *
+ * @param session  the session row
+ * @param games    its games (only round 1 is listed — the rest rotates anyway)
+ * @param members  the club roster, for names
+ * @param url      link to the app
+ */
+export function buildSessionShare({ session, games = [], members = [], url } = {}) {
+  const a = announcement({ session, games });
+  if (!a) return '';
+
+  const nameOf = (id) => members.find((m) => m.id === id)?.name ?? '—';
+  const namesOf = (ids) => (ids ?? []).map(nameOf).join(' & ');
+
+  const lines = [`🥒 ${a.name}${a.when ? ` — ${a.when}` : ''}`, a.details.join(' · ')];
+
+  if (a.teams.length > 0) {
+    lines.push('', 'Teams');
+    a.teams.forEach((side, i) => lines.push(`${i + 1}. ${namesOf(side)}`));
+  }
+
+  if (a.round1.length > 0) {
     lines.push('', 'Round 1');
-    const multiCourt = (session.courts ?? 1) > 1;
-    for (const g of firstRound) {
-      const prefix = multiCourt ? `Court ${g.court}: ` : '';
+    for (const g of a.round1) {
+      const prefix = a.multiCourt ? `Court ${g.court}: ` : '';
       lines.push(`${prefix}${namesOf(g.teamA)} vs ${namesOf(g.teamB)}`);
     }
-    const byes = firstRound[0]?.byes ?? [];
-    if (byes.length > 0) lines.push(`Sitting out: ${byes.map(nameOf).join(', ')}`);
+    if (a.byes.length > 0) lines.push(`Sitting out: ${a.byes.map(nameOf).join(', ')}`);
   }
 
-  const playing = session.playerIds?.length ?? 0;
-  if (playing > 0) lines.push('', `${playing} playing`);
-
+  if (a.playing > 0) lines.push('', `${a.playing} playing`);
   if (url) lines.push('', `Full schedule: ${url}`);
 
   return lines.join('\n');
