@@ -296,11 +296,20 @@ try {
   {
     // The lock-out guard. Without it a club can reach a state where nobody can
     // ever start a session again, and there is no way back from it.
+    //
+    // The message is checked, not just the presence of an error. Accepting any
+    // failure let a genuinely broken function pass: `select count(*) ... for
+    // update` is invalid SQL, so every demotion raised — and this read as the
+    // guard working while "hand the job back" was the only thing failing.
     const { error } = await admin.c.rpc('set_member_role', {
       p_member_id: adminMemberId, p_role: 'player',
     });
-    check('the last admin cannot be demoted', Boolean(error),
-      error ? '' : 'the club was left with no admin');
+    check('the last admin cannot be demoted', /at least one admin/i.test(error?.message ?? ''),
+      error ? `refused with the wrong error: ${error.message}` : 'the club was left with no admin');
+
+    const { data: still } = await admin.c
+      .from('members').select('role').eq('id', adminMemberId).single();
+    check('the refusal left the admin in post', still?.role === 'admin', `role is ${still?.role}`);
   }
 
   /* --------------------------------------------------------- 7. revocation */

@@ -64,13 +64,23 @@ begin
     return row_to_json(v_member);
   end if;
 
-  -- The lock-out guard. Counted inside the transaction, so two admins demoting
-  -- each other at the same moment cannot both pass this check and leave zero.
+  -- The lock-out guard.
+  --
+  -- Lock the club's admin rows, THEN count them, in two statements. A locking
+  -- clause cannot sit alongside an aggregate at the same query level, so
+  -- `select count(*) ... for update` is not merely inelegant — it raises
+  -- "FOR UPDATE is not allowed with aggregate functions" and every demotion
+  -- fails. Taking the lock first is also what makes the check hold: two admins
+  -- demoting each other at the same moment would otherwise both see the other
+  -- still in post and leave the club with none.
   if p_role = 'player' then
+    perform 1 from public.members
+      where club_id = v_member.club_id and role = 'admin'
+      for update;
+
     select count(*) into v_admins
       from public.members
-     where club_id = v_member.club_id and role = 'admin'
-       for update;
+     where club_id = v_member.club_id and role = 'admin';
 
     if v_admins <= 1 then
       raise exception 'A club needs at least one admin' using errcode = '23514';
