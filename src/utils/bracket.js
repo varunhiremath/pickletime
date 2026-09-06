@@ -233,22 +233,44 @@ export function resolveBracket(entrants, games) {
   const byKey = new Map(field.map((e) => [teamKey(e.playerIds), e]));
   const byId = new Map(field.map((e) => [e.id, e]));
 
-  // Collapse each side to the single entrant that played it. computeStandings
-  // credits whatever ids sit on a side, so a pair reduced to its team key looks
-  // exactly like a player to it — one ranking implementation, both shapes.
   const entrantOf = (ids) => {
     if (!ids?.length) return null;
     return byKey.get(teamKey(ids)) ?? null;
   };
+
+  /**
+   * The entrants a side credits.
+   *
+   * Two cases, and getting only the first one right was a real bug: an Americano
+   * side is TWO entrants, because partners rotate and the table ranks
+   * individuals. Matching only whole sides against team keys silently dropped
+   * every Americano round-robin game, so the table read 0-0-0 for everyone and
+   * the final was seeded by name order.
+   *
+   *   fixed pairs   ['a','b'] → ['a+b']       one team, ranked as one thing
+   *   americano     ['a','b'] → ['a','b']     two players, credited separately
+   *   singles       ['a']     → ['a']
+   */
+  const sideEntrants = (ids) => {
+    if (!ids?.length) return null;
+    const team = entrantOf(ids);
+    if (team) return [team.id];
+    const each = ids.map((id) => byId.get(id));
+    // A side that matches neither is a fixture from before a redraw. Crediting
+    // it to nobody beats inventing a team for it.
+    return each.every(Boolean) ? each.map((e) => e.id) : null;
+  };
+
+  // computeStandings credits whatever ids sit on a side, so a pair reduced to
+  // its team key looks exactly like a player to it — one ranking
+  // implementation, all three shapes.
   const collapse = (list) => {
     const out = [];
     for (const g of list) {
-      const a = entrantOf(g.teamA);
-      const b = entrantOf(g.teamB);
-      // A side that matches no current entrant is a fixture from before a
-      // redraw. Crediting it to nobody beats inventing a team for it.
+      const a = sideEntrants(g.teamA);
+      const b = sideEntrants(g.teamB);
       if (!a || !b) continue;
-      out.push({ ...g, teamA: [a.id], teamB: [b.id] });
+      out.push({ ...g, teamA: a, teamB: b });
     }
     return out;
   };

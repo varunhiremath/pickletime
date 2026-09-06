@@ -38,10 +38,11 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `canRunPlayoffs`. |
+| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `FINAL_ONLY_SLOTS`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
+| `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -51,6 +52,11 @@ when someone deep-links to Courtside.
 | `uuid.js` | `uuid` — v4, with a `getRandomValues` fallback for Safari before 15.4. |
 | `platform.js` | `isIos`, `isStandalone`, `shouldOfferIosInstall`, `readEnv`. |
 | `sound.js` | `playTick`, `playChime`, `playFanfare`, `playError` — WebAudio, no asset files. |
+
+Two files sit next to these but are **not** node-tested, because they need a
+browser rather than because they are exempt: `bracketImage.js` (`renderBracketPng`)
+paints the bracket onto a canvas, and `share.js` (`shareText`, `shareFile`) drives
+the OS share sheet. Both are verified by driving the real app.
 
 ## Data layer
 
@@ -111,6 +117,13 @@ score" safe rather than reckless.
 are created empty, so entering their score is also what records who played — see
 "The knockout stage" below. It ignores those arguments for round-robin rows, whose
 line-ups belong to the generated schedule.
+
+**`set_member_role` is an RPC for a reason too.** `members_update` already lets an
+admin write any row in their club, so promoting somebody could have been a plain
+update. It isn't, because no policy can express *"there must always be at least one
+admin left"* — and the last admin demoting themselves would lock the club out of
+ever starting another session, with no route back. Admin is what gates creating a
+session, so that rule has to live where the client cannot skip it.
 
 The RLS helpers `is_member()` / `is_admin()` **must** stay `SECURITY DEFINER` with
 `SET search_path = public`: a policy on `members` that queries `members` recurses
@@ -189,9 +202,17 @@ the draw. A `teams` column would be a second source of truth that could disagree
 with the fixtures — most obviously after a redraw. `teamsFromGames()` recovers
 them in first-appearance order.
 
-`resolveBracket` collapses each side to its entrant id before ranking, which is
-what lets one `computeStandings` serve both shapes: a pair reduced to its team
-key looks exactly like a player to it.
+`resolveBracket` collapses each side to **the entrants it credits** before
+ranking, which is what lets one `computeStandings` serve all three shapes: a pair
+reduced to its team key looks exactly like a player to it.
+
+> Matching only whole sides against team keys was a real bug. An Americano side
+> is two players and its entrants are individuals, so no team key ever matched
+> and **every Americano round-robin game was silently dropped** — the table read
+> 0-0-0 for everybody and the final was seeded by name order. A side now maps to
+> one entrant when it *is* one (fixed pairs) and to each of its players when it
+> is not (Americano, singles). Guarded by "credits both players on an Americano
+> side" in `bracket.test.js`.
 
 **Teams can be drawn or entered.** A social morning wants a random draw; a real
 doubles competition is the other way round, because pairs register together. Both
@@ -232,9 +253,32 @@ Two rules make that safe:
   has already been played. Clearing a knockout score empties the line-up again, so the
   slot goes back to being derived.
 
-Singles only: the four seeds are individuals, so a semifinal between them is a singles
-match. There is no principled way to pair four individuals into two doubles teams, so
-Americano sessions are offered no bracket (`canRunPlayoffs`).
+There are two shapes, chosen by `playoffShape(format)` and read back off the fixtures by
+`shapeOf(games)`:
+
+- `SHAPES.KNOCKOUT` — singles and `doubles_pairs`. Four entrants, semifinals, a
+  third-place game and a final.
+- `SHAPES.FINAL_ONLY` — Americano. Partners rotate all session, so there is no standing
+  team to seed; the convention is one deciding game pairing seeds 1 & 4 against 2 & 3.
+  Four players make only two teams, and two teams cannot fill a bracket. The winners are
+  a partnership that exists for that one game and has no row in the table, so
+  `resolveBracket` builds a synthetic row for the podium.
+
+### Sharing it
+
+`utils/bracketTree.js` turns the flat list of matches into a tree — who came in on which
+seed, who beat whom, and what the win was worth — and two things render it:
+
+- `bracketTreeLines()` writes the text that `buildResultsShare` puts in the group chat.
+  Nothing is padded for alignment: chat apps use proportional fonts, so columns arrive
+  ragged. Leading indentation on a `↳` line survives; inter-column spacing does not.
+- `utils/bracketImage.js` paints a PNG. It draws straight onto a canvas rather than
+  rasterising SVG or HTML, both of which have historically tainted the canvas on WebKit
+  and would make `toBlob()` throw on the iPhones half the club uses.
+
+The picture is a **separate button** from the results text, not an attachment on it: iOS
+drops the `text` field when a share carries files, so bundling them would silently lose
+the scores.
 
 ## Scoring
 

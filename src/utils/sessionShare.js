@@ -7,6 +7,7 @@
 // All pure, so the formatting is tested rather than eyeballed.
 
 import { resolveBracket } from './bracket.js';
+import { bracketTreeLines } from './bracketTree.js';
 import { sessionEntrants } from './entrants.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -179,17 +180,11 @@ export function buildResultsShare({ session, games = [], members = [], url } = {
   }
 
   // --- the playoffs -------------------------------------------------
-  const playedKnockouts = bracket.matches.filter((m) => m.played);
-  if (playedKnockouts.length > 0) {
-    lines.push('', 'Playoffs');
-    for (const m of playedKnockouts) {
-      lines.push(`${m.label}: ${scoreLine(m, nameOf)}`);
-    }
-    const pending = bracket.matches.filter((m) => !m.played);
-    if (pending.length > 0) {
-      lines.push(`Still to play: ${pending.map((m) => m.label).join(', ')}`);
-    }
-  }
+  // A tree rather than a list of four results: the seeds each side came in on
+  // and the "↳" line saying what the win was worth are what turn "these games
+  // happened" into "this is how it was won". See utils/bracketTree.js.
+  const tree = bracketTreeLines({ bracket, nameOf });
+  if (tree.length > 0) lines.push('', ...tree);
 
   // --- the table ----------------------------------------------------
   const table = bracket.standings.filter((r) => r.gp > 0);
@@ -208,14 +203,3 @@ export function buildResultsShare({ session, games = [], members = [], url } = {
 
 const record = (row) =>
   `${row.w}W ${row.l}L, ${row.diff > 0 ? '+' : ''}${row.diff}`;
-
-// Winner first — "Sam 11–9 Varun" reads as a result, "Varun 9–11 Sam" reads as
-// a typo. A knockout entered level has no winner, so it stays in fixture order.
-function scoreLine(match, nameOf) {
-  const { scoreA, scoreB, teamA, teamB } = match;
-  if (scoreA === scoreB) return `${nameOf(teamA)} ${scoreA}–${scoreB} ${nameOf(teamB)} (tied)`;
-  const aWon = scoreA > scoreB;
-  const win = aWon ? { ids: teamA, s: scoreA } : { ids: teamB, s: scoreB };
-  const lose = aWon ? { ids: teamB, s: scoreB } : { ids: teamA, s: scoreA };
-  return `${nameOf(win.ids)} ${win.s}–${lose.s} ${nameOf(lose.ids)}`;
-}

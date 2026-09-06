@@ -408,6 +408,23 @@ export function createSupabaseBackend() {
     },
 
     /**
+     * Promote somebody to admin, or hand the job back.
+     *
+     * Goes through an RPC rather than a direct update because the "a club needs
+     * at least one admin" rule has to hold even against a client that skips
+     * asking. See supabase/functions.sql set_member_role().
+     */
+    async setMemberRole(memberId, role) {
+      const row = unwrap(
+        await supabase.rpc('set_member_role', { p_member_id: memberId, p_role: role })
+      );
+      const member = memberFromRow(row);
+      await db.members.put(member);
+      emit({ type: 'members' });
+      return member;
+    },
+
+    /**
      * Removing someone takes their fixtures with them — a game with a missing
      * side can't be scored or ranked coherently. The database cascades
      * score_events; the games themselves are deleted here, then the affected
