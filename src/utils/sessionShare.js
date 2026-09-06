@@ -61,6 +61,57 @@ export const FORMAT_LABEL = {
 export const formatLabel = (format) => FORMAT_LABEL[format] ?? format ?? '';
 
 /**
+ * The caption that travels with a shared picture.
+ *
+ * Deliberately two lines. The card already shows the teams, the scores and the
+ * table, so repeating them here would be noise in the chat — but a picture
+ * cannot carry a tappable link, and that is the whole job of this text.
+ *
+ * @param session   the session row
+ * @param url       link to the app
+ * @param headline  optional extra first-line detail, e.g. who won
+ * @param icon      the emoji to lead with
+ * @param linkLabel what the link is for
+ */
+function caption({ session, url, headline, icon, linkLabel }) {
+  if (!session) return '';
+
+  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
+    .filter(Boolean)
+    .join(', ');
+
+  const lines = [`${icon} ${session.name}${when ? ` — ${when}` : ''}`];
+  if (headline) lines.push(headline);
+  if (url) lines.push('', `${linkLabel}: ${url}`);
+  return lines.join('\n');
+}
+
+/** Caption for the results picture. `champion` is a name, when there is one. */
+export function buildResultsCaption({ session, url, champion } = {}) {
+  return caption({
+    session,
+    url,
+    // 🥇 rather than a second 🏆: the trophy is already the session's icon on
+    // the line above, and repeating it makes the two lines read as one thing.
+    headline: champion ? `🥇 ${champion}` : null,
+    icon: '🏆',
+    linkLabel: 'Full results',
+  });
+}
+
+/** Caption for the session announcement picture. */
+export function buildSessionCaption({ session, url } = {}) {
+  const a = announcement({ session });
+  return caption({
+    session,
+    url,
+    headline: a?.details?.length ? a.details.join(' · ') : null,
+    icon: '🥒',
+    linkLabel: 'Full schedule',
+  });
+}
+
+/**
  * Everything an announcement says, as data.
  *
  * Extracted so the message and the picture (utils/sessionImage.js) are two
@@ -82,7 +133,9 @@ export function announcement({ session, games = [] } = {}) {
 
   const details = [formatLabel(session.format)];
   if (session.format !== 'singles' && session.numGames) {
-    details.push(`${session.numGames} games`);
+    // Four players in fixed pairs is two teams and therefore one game, which
+    // read as "1 games".
+    details.push(`${session.numGames} game${session.numGames === 1 ? '' : 's'}`);
   }
   if (session.pointsTo) details.push(`to ${session.pointsTo}`);
 

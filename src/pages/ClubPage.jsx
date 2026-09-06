@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus } from 'lucide-react';
 import {
-  buildSessionShare, formatSessionDate, formatSessionTime, formatLabel,
+  buildSessionShare, buildSessionCaption, formatSessionDate, formatSessionTime, formatLabel,
 } from '../utils/sessionShare.js';
 import { renderSessionPng } from '../utils/sessionImage.js';
 import { shareText, shareFile } from '../utils/share.js';
@@ -178,9 +178,13 @@ export default function ClubPage() {
     }
 
     const file = new File([png], `${slug(session.name)}.png`, { type: 'image/png' });
-    const outcome = await shareFile(file, { title: session.name });
+    const outcome = await shareFile(file, {
+      title: session.name,
+      // The link the picture cannot carry. See utils/share.js.
+      text: buildSessionCaption({ session, url: appUrl }),
+    });
     if (outcome === 'downloaded') {
-      toast('Session card saved to your downloads.', { type: 'success' });
+      toast('Image saved, link copied — paste them into your group chat.', { type: 'success' });
     } else if (outcome === 'failed') {
       toast('Could not share the session.', { type: 'error' });
     }

@@ -9,7 +9,7 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
-import { buildResultsShare, formatSessionDate } from '../utils/sessionShare.js';
+import { buildResultsShare, buildResultsCaption, formatSessionDate } from '../utils/sessionShare.js';
 import { renderResultsPng } from '../utils/resultsImage.js';
 import { shareText, shareFile } from '../utils/share.js';
 import { toast } from '../store/uiStore.js';
@@ -116,9 +116,13 @@ export default function StandingsPage() {
     }
 
     const file = new File([png], `${slug(session.name)}-results.png`, { type: 'image/png' });
-    const outcome = await shareFile(file, { title: `${session.name} — results` });
+    const outcome = await shareFile(file, {
+      title: `${session.name} — results`,
+      // The link the picture cannot carry. See utils/share.js.
+      text: buildResultsCaption({ session, url: appUrl, champion: bracket.champion?.name }),
+    });
     if (outcome === 'downloaded') {
-      toast('Results image saved to your downloads.', { type: 'success' });
+      toast('Image saved, link copied — paste them into your group chat.', { type: 'success' });
     } else if (outcome === 'failed') {
       toast('Could not share the results.', { type: 'error' });
     }

@@ -294,12 +294,19 @@ seed, who beat whom, what the win was worth — and `announcement()` in `session
 does the same for a session. Each has a text renderer as well, so the message and the
 picture cannot drift apart.
 
-Text is still reachable behind a quiet "instead" link, for two reasons that are not
-stylistic: a picture has no tappable link, and **iOS drops the `text` field when a share
-carries files**, so offering them as one action would silently lose whichever the phone
-decided to ignore. The text renderers pad nothing for alignment — chat apps use
-proportional fonts, so columns arrive ragged; leading indentation on a `↳` line survives,
-inter-column spacing does not.
+**The picture goes with a caption, in one share call.** A picture cannot carry a
+tappable link, so `buildResultsCaption` / `buildSessionCaption` add two lines — what it
+is, and the URL. `shareFile()` offers payloads to `canShare()` widest-first
+(`{files, text, title}`, then `{files, title}`), because some platforms accept files,
+accept text, and reject the two together — and calling `share()` with a payload
+`canShare()` rejects throws. Android sends both. **iOS is known to drop `text` when
+files are attached**, which is survivable rather than silent here: the link is also drawn
+into the image's footer. On desktop, where files cannot be shared at all, the image
+downloads and the caption goes to the clipboard.
+
+The full text is still reachable behind a quiet "instead" link. Those renderers pad
+nothing for alignment — chat apps use proportional fonts, so columns arrive ragged;
+leading indentation on a `↳` line survives, inter-column spacing does not.
 
 ## Scoring
 
