@@ -63,11 +63,20 @@ describe('members', () => {
     expect(build().members.every((m) => m.clubId === 'srv-club')).toBe(true);
   });
 
-  it('leaves exactly one admin — the account doing the publishing', () => {
-    const withTwoAdmins = build({
-      members: local.members.map((m) => ({ ...m, role: 'admin' })),
+  it('keeps players as players', () => {
+    expect(build().members.every((m) => m.role === 'player')).toBe(true);
+  });
+
+  it('carries a co-admin across rather than quietly demoting them', () => {
+    // Admin can be shared, and a club that named two organisers before
+    // publishing should still have two afterwards. They can do nothing until
+    // they claim a device — every RLS check matches on user_id, which is NULL
+    // on a freshly published row.
+    const withCoAdmin = build({
+      members: local.members.map((m) => (m.id === 'm2' ? { ...m, role: 'admin' } : m)),
     });
-    expect(withTwoAdmins.members.every((m) => m.role === 'player')).toBe(true);
+    expect(withCoAdmin.members.find((m) => m.name === 'Priya').role).toBe('admin');
+    expect(withCoAdmin.members.find((m) => m.name === 'Sam').role).toBe('player');
   });
 
   it('preserves names and avatar colours', () => {

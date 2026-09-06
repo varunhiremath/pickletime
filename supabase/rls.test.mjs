@@ -258,8 +258,53 @@ try {
       error ? '' : 'the delete was accepted');
   }
 
-  /* --------------------------------------------------------- 6. revocation */
-  section('6. Revoking cuts a device off');
+  /* ------------------------------------------------------ 6. shared admin */
+  section('6. The admin job can be shared');
+
+  {
+    const { error } = await friend.c.rpc('set_member_role', {
+      p_member_id: friendMemberId, p_role: 'admin',
+    });
+    check('a player cannot promote themselves through the RPC', Boolean(error),
+      error ? '' : 'the promotion was accepted');
+  }
+
+  {
+    const { error } = await admin.c.rpc('set_member_role', {
+      p_member_id: friendMemberId, p_role: 'admin',
+    });
+    check('an admin can promote a member', !error, error?.message);
+  }
+
+  {
+    // The whole point of the feature: somebody else can get the games going.
+    const { error } = await friend.c.from('sessions').insert({
+      id: crypto.randomUUID(), club_id: clubId, name: 'Second admin session',
+      date: '2026-08-02', format: 'singles', player_ids: [adminMemberId, friendMemberId],
+      num_games: 1, courts: 1, points_to: 11, rng_seed: 2, status: 'live',
+    });
+    check('the new admin can start a session', !error, error?.message);
+  }
+
+  {
+    const { error } = await admin.c.rpc('set_member_role', {
+      p_member_id: friendMemberId, p_role: 'player',
+    });
+    check('an admin can hand the job back', !error, error?.message);
+  }
+
+  {
+    // The lock-out guard. Without it a club can reach a state where nobody can
+    // ever start a session again, and there is no way back from it.
+    const { error } = await admin.c.rpc('set_member_role', {
+      p_member_id: adminMemberId, p_role: 'player',
+    });
+    check('the last admin cannot be demoted', Boolean(error),
+      error ? '' : 'the club was left with no admin');
+  }
+
+  /* --------------------------------------------------------- 7. revocation */
+  section('7. Revoking cuts a device off');
 
   {
     await admin.c.from('invites').update({ revoked: true }).eq('member_id', friendMemberId);
@@ -273,8 +318,8 @@ try {
     check('the revoked device can no longer score', Boolean(error));
   }
 
-  /* ----------------------------------------------------------- 7. throttle */
-  section('7. Guessing is throttled');
+  /* ----------------------------------------------------------- 8. throttle */
+  section('8. Guessing is throttled');
 
   {
     // Regression guard. This originally failed because claim_invite raised on a

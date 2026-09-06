@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, Snowflake, Share2 } from 'lucide-react';
+import { Flame, Snowflake, Share2, GitBranch } from 'lucide-react';
 import TopBar from '../components/layout/TopBar.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import FlipList from '../components/fx/FlipList.jsx';
@@ -9,8 +9,9 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
-import { buildResultsShare } from '../utils/sessionShare.js';
-import { shareText } from '../utils/share.js';
+import { buildResultsShare, formatSessionDate } from '../utils/sessionShare.js';
+import { renderBracketPng } from '../utils/bracketImage.js';
+import { shareText, shareFile } from '../utils/share.js';
 import { toast } from '../store/uiStore.js';
 
 // Four columns, not six. On a 390px phone, adding PF/PA squeezes the name column
@@ -52,8 +53,12 @@ function Row({ teamPlay, row, children, className, style }) {
   );
 }
 
+/** "Sunday Doubles" → "sunday-doubles", for a filename people can find again. */
+const slug = (name) =>
+  (name ?? 'session').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+
 export default function StandingsPage() {
-  const { session, games, members, recentlyChanged } = useSessionStore();
+  const { club, session, games, members, recentlyChanged } = useSessionStore();
   const players = useSessionStore((s) => s.sessionPlayers());
 
   // The table is the ROUND ROBIN table. Playoff results must not feed back into
@@ -102,6 +107,34 @@ export default function StandingsPage() {
       toast('Results copied — paste them into your group chat.', { type: 'success' });
     } else if (outcome === 'failed') {
       toast('Could not share the results.', { type: 'error' });
+    }
+  };
+
+  /**
+   * Post the bracket as a picture.
+   *
+   * Its own button rather than an attachment on the results message: iOS drops
+   * the text when a share carries a file, so bundling them would quietly lose
+   * the scores. See utils/share.js.
+   */
+  const shareBracket = async () => {
+    const png = await renderBracketPng({
+      bracket,
+      nameOf: (ids) => (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & '),
+      title: session.name,
+      subtitle: [formatSessionDate(session.date), club?.name].filter(Boolean).join(' · '),
+    });
+    if (!png) {
+      toast('Nothing to draw yet — play a playoff game first.', { type: 'info' });
+      return;
+    }
+
+    const file = new File([png], `${slug(session.name)}-bracket.png`, { type: 'image/png' });
+    const outcome = await shareFile(file, { title: `${session.name} — bracket` });
+    if (outcome === 'downloaded') {
+      toast('Bracket saved to your downloads.', { type: 'success' });
+    } else if (outcome === 'failed') {
+      toast('Could not share the bracket.', { type: 'error' });
     }
   };
 
@@ -242,11 +275,19 @@ export default function StandingsPage() {
             })}
           </FlipList>
 
-          <div className="mt-5">
+          <div className="mt-5 flex flex-col gap-2">
             <Button variant={bracket.complete ? 'primary' : 'secondary'} full onClick={shareResults}>
               <Share2 size={16} />
               {bracket.complete ? 'Share the final results' : 'Share results so far'}
             </Button>
+            {/* Only once there is a bracket with something in it — a picture of
+                four empty fixtures tells nobody anything. */}
+            {bracket.matches.some((m) => m.played) && (
+              <Button variant="secondary" full onClick={shareBracket}>
+                <GitBranch size={16} />
+                Share the bracket as a picture
+              </Button>
+            )}
           </div>
 
           <p className="mt-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>

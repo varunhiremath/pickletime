@@ -23,6 +23,10 @@
 //   writes
 //     createClub({ name, adminName })  -> { club, member }
 //     addMember({ name })              -> member
+//     setMemberRole(memberId, role)    -> member
+//       'admin' | 'player'. Admins can start sessions, so this is how the club
+//       keeps playing when whoever created it isn't there. Refuses to demote the
+//       last admin — see supabase/functions.sql set_member_role().
 //     removeMember(memberId)
 //     mintInvite(memberId)             -> { code, invite }   (code shown once)
 //     revokeInvite(memberId)

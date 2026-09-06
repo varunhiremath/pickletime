@@ -43,6 +43,11 @@ the `format` constraint to allow `doubles_pairs`. Without it, creating a
 fixed-pairs session fails and nothing else is affected. Re-running `schema.sql`
 does the same job.
 
+Shared admin adds `supabase/migrate-roles.sql`: a `set_member_role()` RPC so an
+admin can promote somebody else, with a guard that refuses to leave the club
+without one. Without it, "Make admin" in the roster fails and nothing else is
+affected. Re-running `functions.sql` does the same job.
+
 ## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**

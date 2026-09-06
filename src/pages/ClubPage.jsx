@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus } from 'lucide-react';
 import { buildSessionShare, formatSessionDate, formatSessionTime } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
@@ -24,6 +24,9 @@ export default function ClubPage() {
   const [sessionModal, setSessionModal] = useState(false);
   const [teamsModal, setTeamsModal] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  // The last admin cannot hand the job back — there would be nobody left who
+  // could start a session, and no way to appoint one.
+  const adminCount = members.filter((m) => m.role === 'admin').length;
 
   /* ---------- club setup (first run) ---------- */
 
@@ -96,6 +99,39 @@ export default function ClubPage() {
     if (!name) return;
     await getBackend().renameMember(member.id, name);
     await refresh();
+  };
+
+  /**
+   * Hand out — or take back — the admin job.
+   *
+   * The point of this is scheduling: only an admin can start a session, and a
+   * club with one admin cannot play at all if that person is away. The confirm
+   * says what the promotion actually grants rather than the word "admin", which
+   * on its own tells nobody anything.
+   */
+  const setRole = async (member, role) => {
+    const promoting = role === 'admin';
+    const ok = await confirmDialog({
+      title: promoting ? `Make ${member.name} an admin?` : `Remove ${member.name}'s admin?`,
+      message: promoting
+        ? `${member.name} will be able to start sessions, edit the roster and invite people — the same as you.${
+            member.userId ? '' : ' It takes effect when they join with their invite code.'
+          }`
+        : `${member.name} keeps their results and stays on the roster, but can no longer start a session.`,
+      confirmLabel: promoting ? 'Make admin' : 'Remove admin',
+      danger: !promoting,
+    });
+    if (!ok) return;
+    try {
+      await getBackend().setMemberRole(member.id, role);
+      await refresh();
+      toast(
+        promoting ? `${member.name} is now an admin.` : `${member.name} is a player again.`,
+        { type: 'success' }
+      );
+    } catch (err) {
+      toast(err.message ?? 'Could not change that.', { type: 'error' });
+    }
   };
 
   const removePlayer = async (member) => {
@@ -325,9 +361,16 @@ export default function ClubPage() {
               {session ? 'Start another session' : 'Start a session'}
             </Button>
           )}
-          {members.length < 2 && (
+          {isAdmin && members.length < 2 && (
             <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
               Add at least two players first.
+            </p>
+          )}
+          {/* Without this the button is simply absent and nobody knows why. */}
+          {!isAdmin && (
+            <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+              Only an admin can start a session. Ask one of them to make you an admin and
+              you can set the games up yourself.
             </p>
           )}
         </section>
@@ -377,6 +420,32 @@ export default function ClubPage() {
                   </Link>
                   {isAdmin && (
                     <div className="flex shrink-0 gap-1">
+                      {m.role === 'admin' ? (
+                        <button
+                          onClick={() => setRole(m, 'player')}
+                          disabled={adminCount <= 1}
+                          aria-label={`Remove ${m.name}'s admin`}
+                          title={
+                            adminCount <= 1
+                              ? 'A club needs at least one admin.'
+                              : `Remove ${m.name}'s admin`
+                          }
+                          className="flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-30"
+                          style={{ background: 'var(--bg-raised)', color: 'var(--gold-ink)' }}
+                        >
+                          <ShieldMinus size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setRole(m, 'admin')}
+                          aria-label={`Make ${m.name} an admin`}
+                          title={`Make ${m.name} an admin`}
+                          className="flex h-8 w-8 items-center justify-center rounded-full"
+                          style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
+                        >
+                          <ShieldPlus size={14} />
+                        </button>
+                      )}
                       <button
                         onClick={() => renamePlayer(m)}
                         aria-label={`Rename ${m.name}`}
@@ -399,8 +468,11 @@ export default function ClubPage() {
                   )}
                 </div>
 
-                {/* Invites only exist when there's a server to join. */}
-                {remote && isAdmin && m.role !== 'admin' && (
+                {/* Invites only exist when there's a server to join, and you do
+                    not invite yourself. Keyed off identity rather than role:
+                    once admin can be shared, an admin who has not claimed a
+                    device still needs a code. */}
+                {remote && isAdmin && m.id !== identity?.memberId && (
                   <div className="pl-[42px]">
                     <InviteRow
                       member={m}

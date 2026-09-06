@@ -166,6 +166,32 @@ export function createLocalBackend() {
     },
 
     /**
+     * Promote somebody to admin, or hand the job back.
+     *
+     * Single-device mode has no second account to be an admin relative to, so
+     * this is really only bookkeeping until the club is published — but it must
+     * still refuse to leave the club with no admin at all, because that state
+     * would survive the upload.
+     */
+    async setMemberRole(memberId, role) {
+      const member = await db.members.get(memberId);
+      if (!member) throw new Error('That player is not on the roster.');
+      if (member.role === role) return member;
+
+      if (role === ROLES.PLAYER) {
+        const admins = await db.members
+          .where('clubId').equals(member.clubId)
+          .filter((m) => m.role === ROLES.ADMIN)
+          .count();
+        if (admins <= 1) throw new Error('A club needs at least one admin.');
+      }
+
+      await db.members.update(memberId, { role });
+      emit({ type: 'members' });
+      return db.members.get(memberId);
+    },
+
+    /**
      * Removing someone takes their fixtures with them. A game they were part of
      * can't be scored or ranked coherently once a side is missing, so it is
      * removed along with its score events — derived data never outlives its

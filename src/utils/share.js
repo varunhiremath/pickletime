@@ -39,3 +39,50 @@ export async function shareText(text) {
     return 'failed';
   }
 }
+
+/**
+ * Hand a file — in practice a PNG of the bracket — to the share sheet.
+ *
+ * Kept separate from shareText() rather than folded into it, because iOS
+ * quietly drops the `text` field when files are attached. Sharing both at once
+ * would silently lose the results message on half the club's phones, so the app
+ * offers the two as two buttons and each one does exactly what it says.
+ *
+ * @returns 'shared' | 'dismissed' | 'downloaded' | 'failed'
+ */
+export async function shareFile(file, { title } = {}) {
+  if (!file) return 'failed';
+
+  const nav = typeof navigator === 'undefined' ? null : navigator;
+  // canShare({files}) is the only honest test. `navigator.share` existing says
+  // nothing about whether this device will accept an attachment.
+  if (nav?.share && nav.canShare?.({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title });
+      return 'shared';
+    } catch (err) {
+      if (err?.name === 'AbortError') return 'dismissed';
+    }
+  }
+
+  return download(file);
+}
+
+/** Desktop's answer to a share sheet: put it in the downloads folder. */
+function download(file) {
+  try {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || 'bracket.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked on a timeout rather than immediately: Safari has not necessarily
+    // started reading the blob by the time click() returns.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return 'downloaded';
+  } catch {
+    return 'failed';
+  }
+}

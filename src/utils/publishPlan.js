@@ -44,7 +44,11 @@ export function buildPublishPlan(local, { clubId, adminMemberId, newId } = {}) {
       id,
       clubId,
       name: m.name,
-      role: 'player', // exactly one admin — the account doing the publishing
+      // Whatever the roster already said. An admin who has not claimed a device
+      // can do nothing — every RLS check matches on user_id, which is still
+      // NULL — so carrying the role across is safe, and dropping it would
+      // silently undo a decision the club made before publishing.
+      role: m.role === 'admin' ? 'admin' : 'player',
       colorIndex: m.colorIndex ?? outMembers.length % 8,
       createdAt: m.createdAt,
     });

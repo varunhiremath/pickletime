@@ -301,7 +301,7 @@ describe('buildResultsShare', () => {
     expect(text).toContain('🥉 Ben');
   });
 
-  it('writes each playoff result winner-first', () => {
+  it('draws the bracket as a tree, winner-first, with the seeds', () => {
     const games = [
       ...roundRobin(),
       ko('sf1', ['a'], ['d'], 11, 4),
@@ -310,11 +310,15 @@ describe('buildResultsShare', () => {
       ko('final', ['a'], ['c'], 9, 11),
     ];
     const text = build(games);
+    expect(text).toContain('Bracket');
     // Team B won this one, so Cal must lead the line, not Ana.
-    expect(text).toContain('Final: Cal 11–9 Ana');
-    expect(text).toContain('Semifinal 1: Ana 11–4 Dee');
-    expect(text).toContain('Semifinal 2: Cal 11–7 Ben');
-    expect(text).toContain('3rd place: Ben 11–5 Dee');
+    expect(text).toContain('Final: (3) Cal 11–9 (1) Ana');
+    expect(text).toContain('Semifinal 1: (1) Ana 11–4 (4) Dee');
+    expect(text).toContain('Semifinal 2: (3) Cal 11–7 (2) Ben');
+    expect(text).toContain('3rd place: (2) Ben 11–5 (4) Dee');
+    // The arrows are what make it a tree rather than four unrelated results.
+    expect(text).toContain('↳ Ana into the final');
+    expect(text).toContain('↳ 🏆 Cal champions');
   });
 
   it('does not call anyone the winner while the playoffs are unfinished', () => {

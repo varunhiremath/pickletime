@@ -314,7 +314,14 @@ describe('the Americano finish', () => {
     scoreA: sa ?? null, scoreB: sb ?? null, played: sa != null,
   });
 
-  /** Rotation scored so the finishing order is p1 > p2 > ... > p8. */
+  /**
+   * A rotation where the lower-numbered player's side always wins.
+   *
+   * That biases the table towards p1 but does NOT produce the order
+   * p1 > p2 > ... > p8 — partners rotate, so a weak player carried by p1 banks
+   * wins too. These tests deliberately do not assume a finishing order; they
+   * read the seeding back off the result and check the pairing rule against it.
+   */
   const rotation = () => {
     n = 0;
     const games = [];
@@ -358,18 +365,38 @@ describe('the Americano finish', () => {
     expect(shapeOf(rotation())).toBeNull();
   });
 
+  it('credits both players on an Americano side', () => {
+    // Regression guard. Sides here are two players and the entrants are
+    // individuals, so matching a whole side against a team key finds nothing —
+    // which used to drop every round-robin game silently. The table then read
+    // 0-0-0 for everybody and the final was seeded by name order.
+    const games = [
+      rr(['p1', 'p2'], ['p3', 'p4'], 11, 5),
+      rr(['p1', 'p3'], ['p2', 'p4'], 11, 7),
+      rr(['p1', 'p4'], ['p2', 'p3'], 11, 9),
+    ];
+    const rows = resolveBracket(P8.slice(0, 4), games).standings;
+    expect(rows.map((r) => `${r.id} ${r.w}-${r.l} ${r.diff}`)).toEqual([
+      'p1 3-0 12', 'p2 1-2 0', 'p3 1-2 -4', 'p4 1-2 -8',
+    ]);
+  });
+
   it('pairs seed 1 with seed 4 against seed 2 with seed 3', () => {
     const games = withFinal(rotation());
     const b = resolveBracket(P8, games);
 
     expect(b.shape).toBe(SHAPES.FINAL_ONLY);
     expect(b.rr.complete).toBe(true);
-    expect(b.qualifiers.map((q) => q.id)).toEqual(['p1', 'p2', 'p3', 'p4']);
+    expect(b.qualifiers).toHaveLength(4);
+    // Everyone qualifying has actually played — the seeding is earned, not a
+    // fallback to alphabetical order over an empty table.
+    expect(b.qualifiers.every((q) => q.gp > 0)).toBe(true);
 
+    const [s1, s2, s3, s4] = b.qualifiers.map((q) => q.id);
     const final = b.matches.find((m) => m.slot === SLOT.FINAL);
     // Balanced on paper: the best player partners the weakest qualifier.
-    expect([...final.teamA].sort()).toEqual(['p1', 'p4']);
-    expect([...final.teamB].sort()).toEqual(['p2', 'p3']);
+    expect([...final.teamA].sort()).toEqual([s1, s4].sort());
+    expect([...final.teamB].sort()).toEqual([s2, s3].sort());
     expect(final.ready).toBe(true);
   });
 
@@ -392,11 +419,13 @@ describe('the Americano finish', () => {
 
     const b = resolveBracket(P8, games);
     expect(b.complete).toBe(true);
-    // Seeds 2 and 3 took it.
-    expect([...b.champion.playerIds].sort()).toEqual(['p2', 'p3']);
-    expect(b.champion.name).toBe('P2 & P3');
-    expect([...b.runnerUp.playerIds].sort()).toEqual(['p1', 'p4']);
-    expect(b.runnerUp.name).toBe('P1 & P4');
+    // Team B took it — a partnership that exists for this one game and has no
+    // row in the table, so the podium has to build a name for it.
+    const nameOf = (ids) => ids.map((id) => `P${id.slice(1)}`).join(' & ');
+    expect([...b.champion.playerIds].sort()).toEqual([...final.teamB].sort());
+    expect(b.champion.name).toBe(nameOf(final.teamB));
+    expect([...b.runnerUp.playerIds].sort()).toEqual([...final.teamA].sort());
+    expect(b.runnerUp.name).toBe(nameOf(final.teamA));
   });
 
   it('stays locked while the rotation is unfinished', () => {

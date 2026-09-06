@@ -291,6 +291,76 @@ end;
 $$;
 
 -- ================================================================
+-- set_member_role(member_id, role)
+-- ================================================================
+-- Sharing the admin job. Only an admin can start a session, and a club that had
+-- exactly one of them could not play at all if that person was away.
+--
+-- policies.sql already lets an admin UPDATE any member row, so this could have
+-- been a plain update. It is not, because a policy cannot express "there must
+-- always be at least one admin left" — and the last admin demoting themselves
+-- would lock the club out of starting another session for good.
+
+create or replace function public.set_member_role(p_member_id uuid, p_role text)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_member  public.members%rowtype;
+  v_admins  int;
+begin
+  if v_uid is null then
+    raise exception 'Not signed in' using errcode = '28000';
+  end if;
+
+  if p_role not in ('admin', 'player') then
+    raise exception 'Unknown role' using errcode = '22023';
+  end if;
+
+  select * into v_member from public.members where id = p_member_id;
+  if not found then
+    raise exception 'Member not found' using errcode = 'P0002';
+  end if;
+
+  if not exists (
+    select 1 from public.members m
+     where m.club_id = v_member.club_id
+       and m.user_id = v_uid
+       and m.role = 'admin'
+  ) then
+    raise exception 'Only an admin can change roles' using errcode = '42501';
+  end if;
+
+  if v_member.role = p_role then
+    return row_to_json(v_member);
+  end if;
+
+  -- Counted inside the transaction and locked, so two admins demoting each
+  -- other simultaneously cannot both pass and leave the club with none.
+  if p_role = 'player' then
+    select count(*) into v_admins
+      from public.members
+     where club_id = v_member.club_id and role = 'admin'
+       for update;
+
+    if v_admins <= 1 then
+      raise exception 'A club needs at least one admin' using errcode = '23514';
+    end if;
+  end if;
+
+  update public.members
+     set role = p_role
+   where id = p_member_id
+  returning * into v_member;
+
+  return row_to_json(v_member);
+end;
+$$;
+
+-- ================================================================
 -- Grants
 -- ================================================================
 -- EXECUTE is granted narrowly. Note that create_club and claim_invite are
@@ -300,10 +370,12 @@ $$;
 revoke all on function public.create_club(text, text)     from public, anon;
 revoke all on function public.claim_invite(text)          from public, anon;
 revoke all on function public.submit_score(uuid, int, int, uuid[], uuid[]) from public, anon;
+revoke all on function public.set_member_role(uuid, text)  from public, anon;
 
 grant execute on function public.create_club(text, text)  to authenticated;
 grant execute on function public.claim_invite(text)       to authenticated;
 grant execute on function public.submit_score(uuid, int, int, uuid[], uuid[]) to authenticated;
+grant execute on function public.set_member_role(uuid, text) to authenticated;
 
 -- The RLS helpers MUST stay executable by `authenticated`. Policy expressions
 -- are evaluated as the querying role, so revoking EXECUTE here would make every
