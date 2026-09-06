@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatSessionDate,
   formatSessionTime,
+  formatLabel,
   buildSessionShare,
   buildResultsShare,
 } from './sessionShare.js';
@@ -212,6 +213,21 @@ describe('buildSessionShare', () => {
   it('is empty with no session', () => {
     expect(buildSessionShare({ session: null })).toBe('');
     expect(buildSessionShare()).toBe('');
+  });
+});
+
+describe('formatLabel', () => {
+  it('names each format', () => {
+    expect(formatLabel('singles')).toBe('Singles round robin');
+    expect(formatLabel('doubles_americano')).toBe('Doubles · Americano');
+    // The Club tab used to call every non-singles session Americano, so a
+    // fixed-pairs morning was labelled as the wrong format where it was set up.
+    expect(formatLabel('doubles_pairs')).toBe('Doubles · Fixed pairs');
+  });
+
+  it('falls back to the raw value rather than guessing', () => {
+    expect(formatLabel('something_new')).toBe('something_new');
+    expect(formatLabel()).toBe('');
   });
 });
 

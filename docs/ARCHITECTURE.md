@@ -43,6 +43,7 @@ when someone deep-links to Courtside.
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `FINAL_ONLY_SLOTS`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
+| `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -53,10 +54,14 @@ when someone deep-links to Courtside.
 | `platform.js` | `isIos`, `isStandalone`, `shouldOfferIosInstall`, `readEnv`. |
 | `sound.js` | `playTick`, `playChime`, `playFanfare`, `playError` — WebAudio, no asset files. |
 
-Two files sit next to these but are **not** node-tested, because they need a
-browser rather than because they are exempt: `bracketImage.js` (`renderBracketPng`)
-paints the bracket onto a canvas, and `share.js` (`shareText`, `shareFile`) drives
-the OS share sheet. Both are verified by driving the real app.
+Four files sit next to these but are **not** node-tested, because they need a
+browser rather than because they are exempt: `shareCanvas.js` (the palette, type
+scale and canvas primitives), `resultsImage.js` (`renderResultsPng`) and
+`sessionImage.js` (`renderSessionPng`), which paint the two shareable cards, and
+`share.js` (`shareText`, `shareFile`), which drives the OS share sheet. All are
+verified by driving the real app. What they *say* is derived by tested pure code —
+`bracketTree.js` and `sessionShare.js` `announcement()` — so only the layout is
+unproven by unit tests.
 
 ## Data layer
 
@@ -264,21 +269,37 @@ There are two shapes, chosen by `playoffShape(format)` and read back off the fix
   a partnership that exists for that one game and has no row in the table, so
   `resolveBracket` builds a synthetic row for the podium.
 
-### Sharing it
+## Sharing
 
+There is no push notification — a static site cannot send one — so the group chat is
+how a session gets announced and how results reach people who weren't there. **Both are
+pictures by default.** A paragraph scrolls past in a group chat; a card does not.
+
+Two cards, both painted on a canvas via `utils/shareCanvas.js`:
+
+- `sessionImage.js` — the announcement: format, teams, round 1, who is sitting out.
+- `resultsImage.js` — the whole result: podium, bracket, round-robin table. Carrying
+  the table is what lets it *replace* the text rather than decorate it, and it is what
+  makes it work for a session played without playoffs.
+
+Drawn straight onto a 2D canvas rather than rasterised from SVG or HTML. Both of those
+routes have historically tainted the canvas on WebKit, which would make `toBlob()` throw
+on exactly the phones half this club uses. The palette is hard-coded dark rather than
+read from the tokens: a shared image is not theme-aware and must not come out different
+depending on what the sharer had their phone set to.
+
+**What they say is derived by tested pure code, not by the painters.**
 `utils/bracketTree.js` turns the flat list of matches into a tree — who came in on which
-seed, who beat whom, and what the win was worth — and two things render it:
+seed, who beat whom, what the win was worth — and `announcement()` in `sessionShare.js`
+does the same for a session. Each has a text renderer as well, so the message and the
+picture cannot drift apart.
 
-- `bracketTreeLines()` writes the text that `buildResultsShare` puts in the group chat.
-  Nothing is padded for alignment: chat apps use proportional fonts, so columns arrive
-  ragged. Leading indentation on a `↳` line survives; inter-column spacing does not.
-- `utils/bracketImage.js` paints a PNG. It draws straight onto a canvas rather than
-  rasterising SVG or HTML, both of which have historically tainted the canvas on WebKit
-  and would make `toBlob()` throw on the iPhones half the club uses.
-
-The picture is a **separate button** from the results text, not an attachment on it: iOS
-drops the `text` field when a share carries files, so bundling them would silently lose
-the scores.
+Text is still reachable behind a quiet "instead" link, for two reasons that are not
+stylistic: a picture has no tappable link, and **iOS drops the `text` field when a share
+carries files**, so offering them as one action would silently lose whichever the phone
+decided to ignore. The text renderers pad nothing for alignment — chat apps use
+proportional fonts, so columns arrive ragged; leading indentation on a `↳` line survives,
+inter-column spacing does not.
 
 ## Scoring
 
