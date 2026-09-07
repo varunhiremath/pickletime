@@ -268,6 +268,37 @@ export function playoffShape(format) {
   return null;
 }
 
+/**
+ * Every finish a format can run, in the order they are offered.
+ *
+ * Singles and fixed pairs can also run the Page system, where seeds 1 and 2 get
+ * two chances at the grand final. Americano cannot: its entrants are individuals
+ * who never form a standing team, so there is nothing to carry through three
+ * rounds — it only has the one-game finish.
+ */
+export function playoffShapesFor(format) {
+  if (format === FORMATS.SINGLES || format === FORMATS.PAIRS) {
+    return [SHAPES.KNOCKOUT, SHAPES.PAGE];
+  }
+  if (format === FORMATS.AMERICANO) return [SHAPES.FINAL_ONLY];
+  return [];
+}
+
+/**
+ * Which shape a request resolves to.
+ *
+ * `playoffs` is `false`, `true` (the format's default), or a shape name. A shape
+ * the format cannot run falls back to its default rather than failing: the
+ * choice is a preference carried across a format switch, not a command.
+ */
+export function resolvePlayoffShape(format, playoffs) {
+  if (!playoffs) return null;
+  const allowed = playoffShapesFor(format);
+  if (allowed.length === 0) return null;
+  if (playoffs === true) return playoffShape(format);
+  return allowed.includes(playoffs) ? playoffs : playoffShape(format);
+}
+
 /** Whether a session can finish with a playoff at all. */
 export function canRunPlayoffs({ format, playerCount }) {
   if (format === FORMATS.SINGLES) return playerCount >= BRACKET_SIZE;
@@ -282,10 +313,13 @@ export function canRunPlayoffs({ format, playerCount }) {
 /**
  * The one entry point the app uses. Returns games with courts assigned.
  *
- * With `playoffs`, four empty knockout fixtures are appended after the round
- * robin — semifinals, a third-place game and a final. They carry no players:
- * who plays them is derived from the standings once the round robin is done.
- * See utils/bracket.js.
+ * With `playoffs`, empty knockout fixtures are appended after the round robin.
+ * They carry no players: who plays them is derived from the standings once the
+ * round robin is done. See utils/bracket.js.
+ *
+ * `playoffs` is `false`, `true` for the format's default finish, or a shape name
+ * from SHAPES — `'page'` for the Page system, where the top two seeds get two
+ * chances at the grand final.
  *
  * `teams` is for fixed pairs only: pass the partnerships to use them verbatim,
  * omit it to draw them at random from the seed. Real doubles competitions have
@@ -308,12 +342,13 @@ export function generateSchedule({
         ? generatePairs(playerIds, { seed, teams })
         : generateAmericano(playerIds, { numGames, courts, seed });
 
-  if (playoffs && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
+  const shape = resolvePlayoffShape(format, playoffs);
+  if (shape && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
     const last = games[games.length - 1];
     games.push(...buildBracketGames({
       lastOrdinal: last.ordinal,
       lastRound: last.round,
-      shape: playoffShape(format),
+      shape,
     }));
   }
 

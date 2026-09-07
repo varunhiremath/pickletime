@@ -497,3 +497,116 @@ describe('knockouts played as sets', () => {
     expect(sf1.winner).toBeNull();
   });
 });
+
+describe('the Page playoff system', () => {
+  // Finishing order a > b > c > d, so the seeds are 1 a, 2 b, 3 c, 4 d.
+  const page = (games) =>
+    games.concat(
+      buildBracketGames({
+        lastOrdinal: games.length, lastRound: 1, shape: SHAPES.PAGE,
+      }).map((g, i) => ({ ...g, id: `pg${i}` }))
+    );
+
+  const play = (games, slot, teamA, teamB, scoreA, scoreB) =>
+    games.map((g) =>
+      g.slot === slot
+        ? { ...g, teamA, teamB, scoreA, scoreB, played: true }
+        : g
+    );
+
+  it('builds five fixtures across three rounds', () => {
+    const built = buildBracketGames({ lastOrdinal: 10, lastRound: 4, shape: SHAPES.PAGE });
+    expect(built.map((g) => g.slot)).toEqual(['qf', 'ef', 'pf', 'bronze', 'final']);
+    expect(built.map((g) => g.round)).toEqual([5, 5, 6, 7, 7]);
+    expect(built.every((g) => g.teamA.length === 0)).toBe(true);
+  });
+
+  it('reads its shape back off the fixtures', () => {
+    expect(shapeOf(page(fullRoundRobin()))).toBe(SHAPES.PAGE);
+    // And is not mistaken for the ordinary bracket, which shares two of its slots.
+    expect(shapeOf(withBracket(fullRoundRobin()))).toBe(SHAPES.KNOCKOUT);
+  });
+
+  it('opens with 1 v 2 and 3 v 4, not 1 v 4 and 2 v 3', () => {
+    const b = resolveBracket(P, page(fullRoundRobin()));
+    const qf = b.matches.find((m) => m.slot === SLOT.QUALIFIER);
+    const ef = b.matches.find((m) => m.slot === SLOT.ELIMINATOR);
+    expect(qf.teamA).toEqual(['a']);
+    expect(qf.teamB).toEqual(['b']);
+    expect(ef.teamA).toEqual(['c']);
+    expect(ef.teamB).toEqual(['d']);
+    expect(qf.ready && ef.ready).toBe(true);
+  });
+
+  it('sends the qualifying final winner straight to the grand final', () => {
+    let games = page(fullRoundRobin());
+    games = play(games, SLOT.QUALIFIER, ['a'], ['b'], 11, 7); // a wins
+    const b = resolveBracket(P, games);
+    expect(b.matches.find((m) => m.slot === SLOT.FINAL).teamA).toEqual(['a']);
+  });
+
+  it('gives the qualifying final loser a second chance in the preliminary', () => {
+    // The whole point of the system: b loses 1v2 and is still alive.
+    let games = page(fullRoundRobin());
+    games = play(games, SLOT.QUALIFIER, ['a'], ['b'], 11, 7); // b loses
+    games = play(games, SLOT.ELIMINATOR, ['c'], ['d'], 11, 5); // c wins
+    const pf = resolveBracket(P, games).matches.find((m) => m.slot === SLOT.PRELIM);
+    expect(pf.teamA).toEqual(['b']);
+    expect(pf.teamB).toEqual(['c']);
+    expect(pf.ready).toBe(true);
+  });
+
+  it('eliminates the loser of 3 v 4 from the grand final entirely', () => {
+    let games = page(fullRoundRobin());
+    games = play(games, SLOT.QUALIFIER, ['a'], ['b'], 11, 7);
+    games = play(games, SLOT.ELIMINATOR, ['c'], ['d'], 11, 5); // d is out
+    games = play(games, SLOT.PRELIM, ['b'], ['c'], 11, 9);
+    const b = resolveBracket(P, games);
+    const final = b.matches.find((m) => m.slot === SLOT.FINAL);
+    expect([...final.teamA, ...final.teamB]).not.toContain('d');
+    expect([...final.teamA, ...final.teamB].sort()).toEqual(['a', 'b']);
+  });
+
+  it('plays the third-place game between the two knocked-out sides', () => {
+    let games = page(fullRoundRobin());
+    games = play(games, SLOT.QUALIFIER, ['a'], ['b'], 11, 7);
+    games = play(games, SLOT.ELIMINATOR, ['c'], ['d'], 11, 5); // d loses
+    games = play(games, SLOT.PRELIM, ['b'], ['c'], 11, 9);     // c loses
+    const bronze = resolveBracket(P, games).matches.find((m) => m.slot === SLOT.BRONZE);
+    expect(bronze.teamA).toEqual(['d']);
+    expect(bronze.teamB).toEqual(['c']);
+  });
+
+  it('crowns a champion who lost on the way there', () => {
+    // b loses the qualifying final and still wins the tournament — the thing
+    // this system exists to allow.
+    let games = page(fullRoundRobin());
+    games = play(games, SLOT.QUALIFIER, ['a'], ['b'], 11, 7);
+    games = play(games, SLOT.ELIMINATOR, ['c'], ['d'], 11, 5);
+    games = play(games, SLOT.PRELIM, ['b'], ['c'], 11, 9);
+    games = play(games, SLOT.BRONZE, ['d'], ['c'], 8, 11);
+    games = play(games, SLOT.FINAL, ['a'], ['b'], 9, 11);
+    const b = resolveBracket(P, games);
+    expect(b.complete).toBe(true);
+    expect(b.champion.id).toBe('b');
+    expect(b.runnerUp.id).toBe('a');
+    expect(b.third.id).toBe('c');
+  });
+
+  it('keeps every fixture waiting until the round robin is finished', () => {
+    const partial = fullRoundRobin().map((g, i) =>
+      i < 3 ? g : { ...g, scoreA: null, scoreB: null, played: false }
+    );
+    const b = resolveBracket(P, page(partial));
+    expect(b.matches.every((m) => !m.ready)).toBe(true);
+  });
+
+  it('names the final a grand final, not a final', () => {
+    const games = page(fullRoundRobin());
+    const b = resolveBracket(P, games);
+    expect(b.matches.find((m) => m.slot === SLOT.FINAL).label).toBe('Grand final');
+    // And the shape-less lookup must not name it after the other bracket's.
+    expect(slotLabel(games.find((g) => g.slot === 'final'), SHAPES.PAGE)).toBe('Grand final');
+    expect(slotLabel(games.find((g) => g.slot === 'final'), SHAPES.KNOCKOUT)).toBe('Final');
+  });
+});

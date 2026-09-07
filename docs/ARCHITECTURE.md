@@ -38,10 +38,10 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `canRunPlayoffs`. |
+| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `playoffShapesFor`, `resolvePlayoffShape`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
-| `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `FINAL_ONLY_SLOTS`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
+| `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `PAGE_SLOTS`, `FINAL_ONLY_SLOTS`, `slotsForShape`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
 | `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
 | `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `displayScore`, `setsLine`, `normaliseSets` — matches played as sets. |
@@ -259,16 +259,47 @@ Two rules make that safe:
   has already been played. Clearing a knockout score empties the line-up again, so the
   slot goes back to being derived.
 
-There are two shapes, chosen by `playoffShape(format)` and read back off the fixtures by
-`shapeOf(games)`:
+There are three shapes. `playoffShapesFor(format)` says which a format may run,
+`resolvePlayoffShape()` turns a request into one, and `shapeOf(games)` reads it back off
+the fixtures — derived, not stored, for the same reason the pairs draw is.
 
-- `SHAPES.KNOCKOUT` — singles and `doubles_pairs`. Four entrants, semifinals, a
-  third-place game and a final.
+- `SHAPES.KNOCKOUT` — singles and `doubles_pairs`. Semifinals 1v4 and 2v3, a third-place
+  game and a final. Lose once and you are out.
+- `SHAPES.PAGE` — the [Page playoff system](https://en.wikipedia.org/wiki/Page_playoff_system),
+  singles and `doubles_pairs`. Five fixtures over three rounds:
+
+  | | | |
+  | --- | --- | --- |
+  | Qualifying final | 1 v 2 | winner → grand final |
+  | Elimination final | 3 v 4 | loser is done |
+  | Preliminary final | QF loser v EF winner | winner → grand final |
+  | 3rd place | EF loser v PF loser | |
+  | Grand final | QF winner v PF winner | |
+
+  The point of it is that topping the table is worth something: seeds 1 and 2 get **two**
+  chances at the grand final, 3 and 4 get one. The third-place game is an addition — in
+  the system as described the preliminary final's loser simply finishes third — so that
+  the two knocked-out sides play it off and everyone gets the same number of games.
 - `SHAPES.FINAL_ONLY` — Americano. Partners rotate all session, so there is no standing
   team to seed; the convention is one deciding game pairing seeds 1 & 4 against 2 & 3.
   Four players make only two teams, and two teams cannot fill a bracket. The winners are
   a partnership that exists for that one game and has no row in the table, so
-  `resolveBracket` builds a synthetic row for the podium.
+  `resolveBracket` builds a synthetic row for the podium. Americano cannot run the Page
+  system for the same reason: nothing survives three rounds.
+
+**A shape is a table, not a branch.** Each entry in `BRACKET_SLOTS` / `PAGE_SLOTS` /
+`FINAL_ONLY_SLOTS` carries not just where its players come from (`seeds`, `feeds`,
+`pairs`) but how it is presented — its `label`, `short` name, `group` heading, what
+winning it is `advance`-worth, and any `medal`. `resolveBracket` copies those onto each
+match, so the bracket screen, the text tree and the picture all read them rather than
+each deciding for itself. Adding the Page system needed no new branch in any of the three.
+
+> `slotLabel(game, shape)` takes the shape for a reason: `'final'` is the **Final** of a
+> knockout and the **Grand final** of a Page playoff, and a lookup across a concatenated
+> list would name half of them wrong.
+
+The Page rounds reuse `stage = 'sf'`, so **adding the shape needed no database change** —
+`stage` is a coarse round-robin/knockout marker and `slot` is what identifies a fixture.
 
 ## Sharing
 

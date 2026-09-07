@@ -1,7 +1,7 @@
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
-import { roundRobinGames, isKnockout } from '../utils/bracket.js';
+import { roundRobinGames, isKnockout, shapeOf } from '../utils/bracket.js';
 import { aggregate } from '../utils/sets.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
@@ -323,7 +323,9 @@ export function createLocalBackend() {
         numGames: roundRobinGames(existing.games).length,
         courts: session.courts,
         seed: usedSeed,
-        playoffs: session.playoffs,
+        // The SHAPE the session already had, not just "it has playoffs" —
+        // reshuffling a Page playoff must not quietly turn it into a knockout.
+        playoffs: session.playoffs && (shapeOf(existing.games) ?? true),
         teams,
       });
 
