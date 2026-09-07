@@ -43,6 +43,11 @@ the `format` constraint to allow `doubles_pairs`. Without it, creating a
 fixed-pairs session fails and nothing else is affected. Re-running `schema.sql`
 does the same job.
 
+Multi-set matches add `supabase/migrate-sets.sql`: `sets_a` / `sets_b` columns on
+`games` and `score_events`, and two more arguments on `submit_score()`. Without
+it, switching a game to best-of-three fails. Re-running `schema.sql` then
+`functions.sql` does the same job.
+
 Shared admin adds `supabase/migrate-roles.sql`: a `set_member_role()` RPC so an
 admin can promote somebody else, with a guard that refuses to leave the club
 without one. Without it, "Make admin" in the roster fails and nothing else is

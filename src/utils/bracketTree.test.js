@@ -204,6 +204,27 @@ describe('bracketTreeLines', () => {
     }
   });
 
+  it('reports a set match by sets won, with the set scores beside it', () => {
+    const games = [
+      ...roundRobin(),
+      { ...ko('sf1', ['a'], ['d'], 27, 29), setsA: [11, 5, 11], setsB: [9, 11, 9] },
+    ];
+    const out = lines(games);
+    // A won it two sets to one having scored 27 to D's 29. Reporting the totals
+    // would name the wrong winner.
+    expect(out).toContain('Semifinal 1: (1) A 2–1 (11–9, 5–11, 11–9) (4) D');
+    expect(out).toContain('   ↳ A into the final');
+  });
+
+  it('flips the set scores when the second side won', () => {
+    // The line is written winner-first, so the sets have to follow the names.
+    const games = [
+      ...roundRobin(),
+      { ...ko('sf1', ['a'], ['d'], 20, 22), setsA: [9, 11, 0], setsB: [11, 9, 11] },
+    ];
+    expect(lines(games)).toContain('Semifinal 1: (4) D 2–1 (11–9, 9–11, 11–0) (1) A');
+  });
+
   it('handles the one-game Americano finish, seeds and all', () => {
     // Seeds 1 & 4 against 2 & 3 — a partnership that exists for this one game.
     const games = [...roundRobin(), ...buildBracketGames({ shape: SHAPES.FINAL_ONLY })

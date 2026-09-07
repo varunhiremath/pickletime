@@ -258,6 +258,51 @@ try {
       error ? '' : 'the delete was accepted');
   }
 
+  /* -------------------------------------------------- 5b. multi-set games */
+  section('5b. A match played as sets');
+
+  {
+    // 11-9, 5-11, 11-9 is won two sets to one by a side that scored 27 to 29.
+    // The totals must be derived from the sets, not taken from the caller.
+    const { error } = await admin.c.rpc('submit_score', {
+      p_game_id: gameId, p_a: 999, p_b: 0,
+      p_sets_a: [11, 5, 11], p_sets_b: [9, 11, 9],
+    });
+    check('a set match can be recorded', !error, error?.message);
+
+    const { data: row } = await admin.c
+      .from('games').select('score_a, score_b, sets_a, sets_b').eq('id', gameId).single();
+    check('the totals come from the sets, not the caller',
+      row?.score_a === 27 && row?.score_b === 29,
+      `got ${row?.score_a}-${row?.score_b}`);
+    check('the sets are stored',
+      JSON.stringify(row?.sets_a) === '[11,5,11]' && JSON.stringify(row?.sets_b) === '[9,11,9]',
+      JSON.stringify(row?.sets_a));
+
+    const { data: ev } = await admin.c
+      .from('score_events').select('sets_a').eq('game_id', gameId)
+      .order('created_at', { ascending: false }).limit(1).single();
+    check('the audit log carries the sets', JSON.stringify(ev?.sets_a) === '[11,5,11]');
+
+    const { error: mismatch } = await admin.c.rpc('submit_score', {
+      p_game_id: gameId, p_a: null, p_b: null, p_sets_a: [11, 9], p_sets_b: [9],
+    });
+    check('mismatched set counts are refused', Boolean(mismatch));
+
+    const { error: tooMany } = await admin.c.rpc('submit_score', {
+      p_game_id: gameId, p_a: null, p_b: null,
+      p_sets_a: [11, 11, 11, 11], p_sets_b: [1, 2, 3, 4],
+    });
+    check('more than three sets is refused', Boolean(tooMany));
+
+    // Back to a single game, so the rest of the suite sees what it expects.
+    await admin.c.rpc('submit_score', { p_game_id: gameId, p_a: 6, p_b: 4 });
+    const { data: back } = await admin.c
+      .from('games').select('sets_a').eq('id', gameId).single();
+    check('clearing back to a single game clears the sets',
+      JSON.stringify(back?.sets_a) === '[]', JSON.stringify(back?.sets_a));
+  }
+
   /* ------------------------------------------------------ 6. shared admin */
   section('6. The admin job can be shared');
 

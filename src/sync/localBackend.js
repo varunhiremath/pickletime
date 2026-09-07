@@ -2,6 +2,7 @@ import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
 import { roundRobinGames, isKnockout } from '../utils/bracket.js';
+import { aggregate } from '../utils/sets.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode } from '../utils/inviteCode.js';
@@ -373,14 +374,39 @@ export function createLocalBackend() {
      * — the semifinalists aren't known until the round robin ends — so entering
      * the score is also the act that records the line-up. Mirrors the server's
      * submit_score(); see supabase/functions.sql for why.
+     *
+     * @param opts  { teamA, teamB } for a knockout line-up, and { setsA, setsB }
+     *   for a match played as sets. The totals are derived from the sets rather
+     *   than taken from the caller, so the two cannot disagree — the same rule
+     *   the server's RPC enforces. See utils/sets.js.
      */
-    async submitScore(gameId, scoreA, scoreB, teams = null) {
+    async submitScore(gameId, scoreA, scoreB, opts = null) {
       const game = await db.games.get(gameId);
       if (!game) throw new Error('Game not found.');
 
       const identity = await this.getIdentity();
-      const played = scoreA != null && scoreB != null;
       const stamp = now();
+      const teams = opts;
+
+      let a = scoreA;
+      let b = scoreB;
+      let setsA = [];
+      let setsB = [];
+      if (opts?.setsA?.length && opts?.setsB?.length) {
+        setsA = opts.setsA;
+        setsB = opts.setsB;
+        const total = aggregate({ setsA, setsB });
+        a = total.a;
+        b = total.b;
+      }
+
+      const played = a != null && b != null;
+      // Clearing a score clears the sets with it, so the match goes back to
+      // being an ordinary fixture rather than an empty best-of-three.
+      if (!played) {
+        setsA = [];
+        setsB = [];
+      }
 
       // Round-robin line-ups come from the generated schedule and are never
       // rewritten by a score. Clearing a knockout score un-decides the slot, so
@@ -400,20 +426,24 @@ export function createLocalBackend() {
         id: newId(),
         gameId,
         memberId: identity.memberId,
-        scoreA,
-        scoreB,
+        scoreA: a,
+        scoreB: b,
         prevA: game.scoreA,
         prevB: game.scoreB,
         teamA,
         teamB,
+        setsA,
+        setsB,
         createdAt: stamp,
       };
 
       await db.transaction('rw', db.games, db.scoreEvents, async () => {
         await db.scoreEvents.put(event);
         await db.games.update(gameId, {
-          scoreA,
-          scoreB,
+          scoreA: a,
+          scoreB: b,
+          setsA,
+          setsB,
           teamA,
           teamB,
           played,

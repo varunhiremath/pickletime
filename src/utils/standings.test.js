@@ -273,3 +273,32 @@ describe('sessionProgress', () => {
     expect(sessionProgress([game(['a'], ['b'], 11, 5, 1)])).toMatchObject({ complete: true });
   });
 });
+
+describe('matches played as sets', () => {
+  // 11-9, 5-11, 11-9: Ana takes it two sets to one having scored 27 to 29.
+  // Deciding the winner by comparing totals would credit the wrong player.
+  const threeSetter = {
+    ordinal: 1, played: true, teamA: ['a'], teamB: ['b'],
+    scoreA: 27, scoreB: 29, setsA: [11, 5, 11], setsB: [9, 11, 9],
+  };
+  const players = [{ id: 'a', name: 'Ana' }, { id: 'b', name: 'Ben' }];
+
+  it('credits the win to whoever won the sets, not the points', () => {
+    const rows = computeStandings(players, [threeSetter]);
+    const ana = rows.find((r) => r.id === 'a');
+    const ben = rows.find((r) => r.id === 'b');
+    expect(ana).toMatchObject({ w: 1, l: 0 });
+    expect(ben).toMatchObject({ w: 0, l: 1 });
+  });
+
+  it('still counts points for and against from the totals', () => {
+    const rows = computeStandings(players, [threeSetter]);
+    expect(rows.find((r) => r.id === 'a')).toMatchObject({ pf: 27, pa: 29, diff: -2 });
+  });
+
+  it('leaves a match nobody has won yet as undecided', () => {
+    const oneAll = { ...threeSetter, setsA: [11, 5], setsB: [9, 11], scoreA: 16, scoreB: 20 };
+    const rows = computeStandings(players, [oneAll]);
+    expect(rows.every((r) => r.w === 0 && r.l === 0 && r.t === 1)).toBe(true);
+  });
+});

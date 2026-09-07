@@ -10,7 +10,7 @@
 // about who beat whom, only where to put it.
 
 import { SLOT } from './bracket.js';
-import { bracketTree, seedLabel } from './bracketTree.js';
+import { bracketTree, seedLabel, setsText } from './bracketTree.js';
 import {
   C, W, PAD, font, newCanvas, toPng, clip, roundRect, card, header, footer, FOOTER_H,
 } from './shareCanvas.js';
@@ -19,6 +19,9 @@ const BOX_W = 372;
 const WIDE_W = 560;
 const ROW_H = 52;
 const BOX_H = 34 + ROW_H * 2 + 14;
+// A set match needs one more line under the two sides for its set scores.
+const SETS_H = 26;
+const boxHeight = (node) => BOX_H + (node?.sets ? SETS_H : 0);
 const TABLE_ROW_H = 54;
 
 /**
@@ -72,33 +75,37 @@ function layout({ bracket, nodes, rows, url, subtitle }) {
     const rightX = W - PAD - BOX_W;
     const gap = 54;
 
-    boxes.push({ node: semis[0], x: leftX, y, w: BOX_W, h: BOX_H });
-    boxes.push({ node: semis[1], x: leftX, y: y + BOX_H + gap, w: BOX_W, h: BOX_H });
+    boxes.push({ node: semis[0], x: leftX, y, w: BOX_W, h: boxHeight(semis[0]) });
+    boxes.push({ node: semis[1], x: leftX, y: y + boxHeight(semis[0]) + gap, w: BOX_W, h: boxHeight(semis[1]) });
 
-    const finalY = y + (BOX_H + gap) / 2;
+    const stack = boxHeight(semis[0]) + gap + boxHeight(semis[1]);
+    const finalH = boxHeight(bySlot[SLOT.FINAL]);
+    const finalY = y + (stack - finalH) / 2;
     if (bySlot[SLOT.FINAL]) {
-      boxes.push({ node: bySlot[SLOT.FINAL], x: rightX, y: finalY, w: BOX_W, h: BOX_H, crown: true });
+      boxes.push({ node: bySlot[SLOT.FINAL], x: rightX, y: finalY, w: BOX_W, h: finalH, crown: true });
       const midX = (leftX + BOX_W + rightX) / 2;
       for (const b of boxes.slice(0, 2)) {
         links.push({
           from: { x: b.x + b.w, y: b.y + b.h / 2 },
-          to: { x: rightX, y: finalY + BOX_H / 2 },
+          to: { x: rightX, y: finalY + finalH / 2 },
           midX,
           lit: Boolean(b.node.advances),
         });
       }
     }
-    y += BOX_H * 2 + gap + 34;
+    y += stack + 34;
   } else if (bySlot[SLOT.FINAL]) {
-    boxes.push({ node: bySlot[SLOT.FINAL], x: (W - WIDE_W) / 2, y, w: WIDE_W, h: BOX_H, crown: true });
-    y += BOX_H + 34;
+    const h = boxHeight(bySlot[SLOT.FINAL]);
+    boxes.push({ node: bySlot[SLOT.FINAL], x: (W - WIDE_W) / 2, y, w: WIDE_W, h, crown: true });
+    y += h + 34;
   }
 
   if (bySlot[SLOT.BRONZE]) {
     // Centred and only half again as wide as a semifinal. At full width the
     // score ends up stranded a long way from the name it belongs to.
-    boxes.push({ node: bySlot[SLOT.BRONZE], x: (W - WIDE_W) / 2, y, w: WIDE_W, h: BOX_H });
-    y += BOX_H + 34;
+    const h = boxHeight(bySlot[SLOT.BRONZE]);
+    boxes.push({ node: bySlot[SLOT.BRONZE], x: (W - WIDE_W) / 2, y, w: WIDE_W, h });
+    y += h + 34;
   }
 
   // --- table ----------------------------------------------------------
@@ -179,6 +186,19 @@ function drawFixture(ctx, { node, x, y, w, h, crown }) {
   node.sides.forEach((side, i) => {
     drawSide(ctx, side, { x, y: y + 34 + i * ROW_H, w, played: node.played });
   });
+
+  // "2–1" on its own says nothing about how. The sets go underneath, and are
+  // NOT flipped: unlike the text line, which is written winner-first, this box
+  // always draws side A on top, so the sets already read in the same order.
+  if (node.sets) {
+    ctx.font = font(600, 19);
+    ctx.fillStyle = C.textLo;
+    ctx.fillText(
+      clip(ctx, setsText(node.setPairs), w - 48),
+      x + 26,
+      y + 34 + ROW_H * 2 + 16
+    );
+  }
 }
 
 function drawSide(ctx, side, { x, y, w, played }) {

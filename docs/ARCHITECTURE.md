@@ -44,6 +44,7 @@ when someone deep-links to Courtside.
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `FINAL_ONLY_SLOTS`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
 | `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
+| `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `displayScore`, `setsLine`, `normaliseSets` — matches played as sets. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -307,6 +308,38 @@ downloads and the caption goes to the clipboard.
 The full text is still reachable behind a quiet "instead" link. Those renderers pad
 nothing for alignment — chat apps use proportional fonts, so columns arrive ragged;
 leading indentation on a `↳` line survives, inter-column spacing does not.
+
+## Matches played as sets
+
+A playoff is often best of three to 11 rather than one game to 11, and which
+matches those are is decided on the day — so it is a property of the **game**, not
+of the session. Any fixture can be switched, on the match card or the Score page.
+
+`games.sets_a` / `games.sets_b` hold the set scores; empty means a single game,
+which is what every row written before this existed is. `score_a` / `score_b`
+stay alongside them holding the **total points across the sets**, so points for,
+against and difference keep counting what they always counted.
+
+> **The winner of a best-of-three is not always the side that scored more
+> points.** 11–9, 5–11, 11–9 is won two sets to one by a side that scored 27 to
+> 29. Every place that decided a winner by comparing the two totals was therefore
+> wrong for a set match — `standings.js` and `bracket.js` `outcome()` both call
+> `winnerOf()` from `utils/sets.js` instead, and so do the match card, the Today
+> page and the shares. **Never reintroduce `scoreA > scoreB`.**
+
+A best-of-three needs **two** sets, not a lead: one set played is 1–0 and decides
+nothing, and neither does 1–1. Both are matches in progress, and calling either a
+win would put the wrong side into a final — so `Save` stays disabled until
+somebody has two.
+
+The totals are derived from the sets by `submit_score()` and by the local
+backend, never taken from the caller, so the two can never disagree.
+
+In the table, a set match counts as **one win** and contributes **all its points**
+to the difference. A round robin mixing single games with three-setters therefore
+has a bigger point swing on the longer matches — which is a true statement about
+what was played. Playoff games never feed the table at all (seeding reads
+round-robin games only), which is where sets are usually used.
 
 ## Scoring
 

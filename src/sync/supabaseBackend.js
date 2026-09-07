@@ -621,14 +621,22 @@ export function createSupabaseBackend() {
      *   it alongside the score. Ignored for round-robin games, whose line-ups
      *   come from the generated schedule.
      */
-    async submitScore(gameId, scoreA, scoreB, teams = null) {
+    /**
+     * @param opts  { teamA, teamB } for a knockout line-up, and { setsA, setsB }
+     *   for a match played as sets. The totals are recomputed from the sets by
+     *   the RPC, so scoreA/scoreB are ignored when sets are given — the two can
+     *   never disagree. See supabase/functions.sql.
+     */
+    async submitScore(gameId, scoreA, scoreB, opts = null) {
       const row = unwrap(
         await supabase.rpc('submit_score', {
           p_game_id: gameId,
           p_a: scoreA,
           p_b: scoreB,
-          p_team_a: teams?.teamA ?? null,
-          p_team_b: teams?.teamB ?? null,
+          p_team_a: opts?.teamA ?? null,
+          p_team_b: opts?.teamB ?? null,
+          p_sets_a: opts?.setsA ?? null,
+          p_sets_b: opts?.setsB ?? null,
         })
       );
       const game = gameFromRow(row);

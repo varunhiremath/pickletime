@@ -63,11 +63,14 @@ export default function MatchesPage() {
   const submit = async (game, a, b, teams) => {
     try {
       await getBackend().submitScore(game.id, a, b, teams);
-      if (a != null) {
+      // A set match passes no a/b — its totals come from the sets — so "was a
+      // score given" is not the same question as "is this a clear".
+      const cleared = a == null && !teams?.setsA?.length;
+      if (!cleared) {
         haptic('win');
         playChime();
       }
-      toast(a == null ? 'Score cleared.' : 'Score saved.', { type: a == null ? 'info' : 'success' });
+      toast(cleared ? 'Score cleared.' : 'Score saved.', { type: cleared ? 'info' : 'success' });
     } catch (err) {
       playError();
       toast(err.message ?? 'Could not save that score.', { type: 'error' });

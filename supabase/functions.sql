@@ -158,7 +158,7 @@ end;
 $$;
 
 -- ================================================================
--- submit_score(game_id, a, b, team_a, team_b)
+-- submit_score(game_id, a, b, team_a, team_b, sets_a, sets_b)
 -- ================================================================
 -- The ONLY way a score is ever written. `games` has no UPDATE policy (see
 -- policies.sql), so this function is the sole writer, and it always appends to
@@ -181,14 +181,16 @@ $$;
 -- line-up comes from the generated schedule and this function will not touch it,
 -- whatever the caller passes.
 
-drop function if exists public.submit_score(uuid, int, int);
+drop function if exists public.submit_score(uuid, int, int, uuid[], uuid[]);
 
 create or replace function public.submit_score(
   p_game_id uuid,
   p_a       int,
   p_b       int,
   p_team_a  uuid[] default null,
-  p_team_b  uuid[] default null
+  p_team_b  uuid[] default null,
+  p_sets_a  int[]  default null,
+  p_sets_b  int[]  default null
 )
 returns json
 language plpgsql
@@ -204,6 +206,11 @@ declare
   v_knockout boolean;
   v_team_a uuid[];
   v_team_b uuid[];
+  v_sets_a int[] := '{}';
+  v_sets_b int[] := '{}';
+  v_score_a int := p_a;
+  v_score_b int := p_b;
+  v_n      int;
 begin
   if v_uid is null then
     raise exception 'Not signed in' using errcode = '28000';
@@ -224,12 +231,47 @@ begin
     raise exception 'You are not a member of this club' using errcode = '42501';
   end if;
 
-  if (p_a is not null and p_a < 0) or (p_b is not null and p_b < 0) then
+  -- --- sets -----------------------------------------------------
+  -- Only when a score is actually being written. Clearing a score clears the
+  -- sets with it, so a cleared match goes back to being an ordinary fixture.
+  if p_sets_a is not null and p_sets_b is not null
+     and coalesce(array_length(p_sets_a, 1), 0) > 0 then
+
+    v_n := coalesce(array_length(p_sets_a, 1), 0);
+
+    if v_n <> coalesce(array_length(p_sets_b, 1), 0) then
+      raise exception 'Both sides need the same number of sets' using errcode = '22023';
+    end if;
+
+    if v_n > 3 then
+      raise exception 'A match is at most 3 sets' using errcode = '22023';
+    end if;
+
+    if exists (select 1 from unnest(p_sets_a || p_sets_b) as s(v) where s.v < 0) then
+      raise exception 'Scores cannot be negative' using errcode = '22023';
+    end if;
+
+    v_sets_a := p_sets_a;
+    v_sets_b := p_sets_b;
+
+    -- Derived here, not trusted from the caller, so the totals can never
+    -- disagree with the sets they came from.
+    select coalesce(sum(v), 0) into v_score_a from unnest(p_sets_a) as s(v);
+    select coalesce(sum(v), 0) into v_score_b from unnest(p_sets_b) as s(v);
+  end if;
+
+  if (v_score_a is not null and v_score_a < 0) or (v_score_b is not null and v_score_b < 0) then
     raise exception 'Scores cannot be negative' using errcode = '22023';
   end if;
 
-  v_played   := p_a is not null and p_b is not null;
+  v_played   := v_score_a is not null and v_score_b is not null;
   v_knockout := coalesce(v_game.stage, 'rr') <> 'rr';
+
+  -- Clearing a score clears the sets too.
+  if not v_played then
+    v_sets_a := '{}';
+    v_sets_b := '{}';
+  end if;
 
   -- Default: leave the line-up exactly as it is.
   v_team_a := v_game.team_a;
@@ -237,9 +279,6 @@ begin
 
   if v_knockout then
     if not v_played then
-      -- Clearing a knockout score un-decides it, so the slot goes back to being
-      -- derived from the standings. Leaving stale players on a cleared
-      -- semifinal would freeze the bracket at whatever it happened to say.
       v_team_a := '{}';
       v_team_b := '{}';
     elsif p_team_a is not null and p_team_b is not null then
@@ -251,9 +290,6 @@ begin
         raise exception 'A player cannot be on both sides' using errcode = '22023';
       end if;
 
-      -- Everyone named has to be on this club's roster. The caller is already a
-      -- member and could enter any score they like, but they should not be able
-      -- to write another club's member ids into this one's games.
       if exists (
         select 1
           from unnest(p_team_a || p_team_b) as t(id)
@@ -271,13 +307,16 @@ begin
   end if;
 
   insert into public.score_events
-    (game_id, member_id, score_a, score_b, prev_a, prev_b, team_a, team_b)
+    (game_id, member_id, score_a, score_b, prev_a, prev_b, team_a, team_b, sets_a, sets_b)
   values
-    (p_game_id, v_member.id, p_a, p_b, v_game.score_a, v_game.score_b, v_team_a, v_team_b);
+    (p_game_id, v_member.id, v_score_a, v_score_b, v_game.score_a, v_game.score_b,
+     v_team_a, v_team_b, v_sets_a, v_sets_b);
 
   update public.games
-     set score_a    = p_a,
-         score_b    = p_b,
+     set score_a    = v_score_a,
+         score_b    = v_score_b,
+         sets_a     = v_sets_a,
+         sets_b     = v_sets_b,
          team_a     = v_team_a,
          team_b     = v_team_b,
          played     = v_played,
@@ -376,12 +415,12 @@ $$;
 
 revoke all on function public.create_club(text, text)     from public, anon;
 revoke all on function public.claim_invite(text)          from public, anon;
-revoke all on function public.submit_score(uuid, int, int, uuid[], uuid[]) from public, anon;
+revoke all on function public.submit_score(uuid, int, int, uuid[], uuid[], int[], int[]) from public, anon;
 revoke all on function public.set_member_role(uuid, text)  from public, anon;
 
 grant execute on function public.create_club(text, text)  to authenticated;
 grant execute on function public.claim_invite(text)       to authenticated;
-grant execute on function public.submit_score(uuid, int, int, uuid[], uuid[]) to authenticated;
+grant execute on function public.submit_score(uuid, int, int, uuid[], uuid[], int[], int[]) to authenticated;
 grant execute on function public.set_member_role(uuid, text) to authenticated;
 
 -- The RLS helpers MUST stay executable by `authenticated`. Policy expressions

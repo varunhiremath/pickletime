@@ -444,3 +444,56 @@ describe('the Americano finish', () => {
     expect(b.matches[0].ready).toBe(false);
   });
 });
+
+describe('knockouts played as sets', () => {
+  const P = ['a', 'b', 'c', 'd'].map((id) => ({ id, name: id.toUpperCase() }));
+  let m = 0;
+  const rr = (a, b, sa, sb) => ({
+    id: `r${++m}`, ordinal: m, round: 1, stage: STAGE.RR, slot: null,
+    teamA: a, teamB: b, byes: [], scoreA: sa, scoreB: sb, played: true,
+  });
+  const table = () => {
+    m = 0;
+    return [
+      rr(['a'], ['b'], 11, 5), rr(['a'], ['c'], 11, 6), rr(['a'], ['d'], 11, 3),
+      rr(['b'], ['c'], 11, 8), rr(['b'], ['d'], 11, 6), rr(['c'], ['d'], 11, 7),
+    ];
+  };
+  const ko = (slot, extra = {}) => ({
+    id: slot, ordinal: 90, round: 9, stage: slot === 'sf1' || slot === 'sf2' ? 'sf' : slot,
+    slot, teamA: [], teamB: [], byes: [], scoreA: null, scoreB: null, played: false, ...extra,
+  });
+
+  it('advances the side that won the sets, not the points', () => {
+    // Seed 1 (A) loses on total points but takes it two sets to one.
+    const games = [
+      ...table(),
+      ko('sf1', {
+        teamA: ['a'], teamB: ['d'], scoreA: 27, scoreB: 29, played: true,
+        setsA: [11, 5, 11], setsB: [9, 11, 9],
+      }),
+      ko('sf2'), ko('bronze'), ko('final'),
+    ];
+    const b = resolveBracket(P, games);
+    const sf1 = b.matches.find((x) => x.slot === 'sf1');
+    expect(sf1.winner).toEqual(['a']);
+    expect(sf1.loser).toEqual(['d']);
+    expect(sf1.drawn).toBe(false);
+    // And the final is fed from that, not from the points.
+    expect(b.matches.find((x) => x.slot === 'final').teamA).toEqual(['a']);
+  });
+
+  it('treats a match nobody has won as undecided, not as a result', () => {
+    const games = [
+      ...table(),
+      ko('sf1', {
+        teamA: ['a'], teamB: ['d'], scoreA: 16, scoreB: 20, played: true,
+        setsA: [11, 5], setsB: [9, 11],
+      }),
+      ko('sf2'), ko('bronze'), ko('final'),
+    ];
+    const sf1 = resolveBracket(P, games).matches.find((x) => x.slot === 'sf1');
+    expect(sf1.drawn).toBe(true);
+    expect(sf1.winner).toBeNull();
+  });
+});

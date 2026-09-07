@@ -80,6 +80,10 @@ export function gameFromRow(r) {
     byes: r.byes ?? [],
     scoreA: r.score_a ?? null,
     scoreB: r.score_b ?? null,
+    // Empty means a single game, which is what every row written before
+    // multi-set matches existed is. See utils/sets.js.
+    setsA: r.sets_a ?? [],
+    setsB: r.sets_b ?? [],
     played: Boolean(r.played),
     scoredBy: r.scored_by ?? null,
     updatedAt: Date.parse(r.updated_at) || 0,
@@ -100,6 +104,8 @@ export function gameToRow(g) {
     byes: g.byes ?? [],
     score_a: g.scoreA ?? null,
     score_b: g.scoreB ?? null,
+    sets_a: g.setsA ?? [],
+    sets_b: g.setsB ?? [],
     played: Boolean(g.played),
     scored_by: g.scoredBy ?? null,
   };
