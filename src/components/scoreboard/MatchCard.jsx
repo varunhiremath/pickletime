@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Check, RotateCcw, Lock, ChevronRight } from 'lucide-react';
+import { Clock, Check, RotateCcw, Lock, ChevronRight, Layers } from 'lucide-react';
 import Chip from '../ui/Chip.jsx';
 import ScoreInput from '../score/ScoreInput.jsx';
+import SetEntry from '../score/SetEntry.jsx';
 import { Avatar } from './PlayerChip.jsx';
+import {
+  BEST_OF, isMultiSet, displayScore, setsLine, setsWon, winnerOf,
+  normaliseSets, draftFrom, emptyDraft,
+} from '../../utils/sets.js';
 
 /**
  * One fixture in the Matches list.
@@ -35,8 +40,12 @@ export default function MatchCard({
 }) {
   const memberById = (id) => members.find((m) => m.id === id);
   const played = game.played && game.scoreA != null && game.scoreB != null;
-  const aWon = played && game.scoreA > game.scoreB;
-  const bWon = played && game.scoreB > game.scoreA;
+  // Not a score comparison: a best-of-three is won two sets to one by a side
+  // that can have scored fewer points overall. See utils/sets.js.
+  const aWon = played && winnerOf(game) === 'a';
+  const bWon = played && winnerOf(game) === 'b';
+  // What goes in the big numerals — sets won for a set match, points otherwise.
+  const shown = displayScore(game);
 
   // A knockout fixture is stored with empty sides until it is played, so the
   // bracket passes in who it worked out should be playing. See utils/bracket.js.
@@ -45,29 +54,64 @@ export default function MatchCard({
 
   const [draft, setDraft] = useState({ a: game.scoreA, b: game.scoreB });
   const [busy, setBusy] = useState(false);
+  // Whether this fixture is being entered as sets. Seeded from what is stored,
+  // so a saved best-of-three re-opens as one, and switchable either way — which
+  // match is best-of-three is decided on the day, not when the session is made.
+  const [sets, setSets] = useState(() => isMultiSet(game));
+  const [setDraftRows, setSetDraftRows] = useState(() => draftFrom(game));
 
   // Follow the row, including when somebody else's score lands here live.
   useEffect(() => {
     setDraft({ a: game.scoreA, b: game.scoreB });
-  }, [game.id, game.scoreA, game.scoreB]);
+    setSets(isMultiSet(game));
+    setSetDraftRows(draftFrom(game));
+  }, [game.id, game.scoreA, game.scoreB, game.setsA, game.setsB]);
+
+  const setCheck = normaliseSets(setDraftRows);
+  const setsDirty =
+    setCheck.ok &&
+    (setCheck.setsA.join() !== (game.setsA ?? []).join() ||
+      setCheck.setsB.join() !== (game.setsB ?? []).join());
 
   const dirty = draft.a !== game.scoreA || draft.b !== game.scoreB;
-  const canSave = editable && !locked && draft.a != null && draft.b != null && dirty;
+  const canSave = editable && !locked && (
+    sets ? setsDirty || (setCheck.ok && !isMultiSet(game))
+         : draft.a != null && draft.b != null && dirty
+  );
 
   // While typing, the highlight follows what is on screen rather than what was
   // last saved — otherwise correcting a result leaves the rail on the old winner.
-  const bothTyped = draft.a != null && draft.b != null;
-  const aLeads = editable && bothTyped ? draft.a > draft.b : aWon;
-  const bLeads = editable && bothTyped ? draft.b > draft.a : bWon;
+  const live = sets
+    ? setsWon({ setsA: setCheck.setsA ?? [], setsB: setCheck.setsB ?? [] })
+    : { a: draft.a, b: draft.b };
+  const bothTyped = live.a != null && live.b != null && (sets ? live.a + live.b > 0 : true);
+  const aLeads = editable && bothTyped ? live.a > live.b : aWon;
+  const bLeads = editable && bothTyped ? live.b > live.a : bWon;
 
   const save = async () => {
     if (!canSave || busy) return;
     setBusy(true);
     try {
-      await onSubmit?.(draft.a, draft.b, { teamA, teamB });
+      if (sets) {
+        // The totals are recomputed from the sets by the backend, so what is
+        // passed here for a/b is ignored — see supabase/functions.sql.
+        await onSubmit?.(null, null, {
+          teamA, teamB, setsA: setCheck.setsA, setsB: setCheck.setsB,
+        });
+      } else {
+        await onSubmit?.(draft.a, draft.b, { teamA, teamB });
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Switch this fixture between one game and best-of-three. */
+  const toggleSets = () => {
+    const next = !sets;
+    setSets(next);
+    if (next) setSetDraftRows(draftFrom(game));
+    else setSetDraftRows(emptyDraft());
   };
 
   const clear = async () => {
@@ -100,11 +144,30 @@ export default function MatchCard({
             <Clock size={10} /> Queued
           </Chip>
         )}
+        {/* Read-only: a set match says so wherever it is shown. */}
+        {!editable && isMultiSet(game) && <Chip tone="court">Best of {BEST_OF}</Chip>}
+
+        {editable && !locked && (
+          <button
+            onClick={toggleSets}
+            aria-pressed={sets}
+            className="ml-auto flex shrink-0 items-center gap-1 font-sans text-[11px] font-bold uppercase tracking-wider"
+            style={{
+              padding: '4px 9px',
+              borderRadius: 'var(--radius-full)',
+              background: sets ? 'var(--optic)' : 'var(--bg-raised)',
+              color: sets ? 'var(--text-on-accent)' : 'var(--text-lo)',
+            }}
+          >
+            <Layers size={12} /> Best of {BEST_OF}
+          </button>
+        )}
+
         {editable && to && (
           <Link
             to={to}
             aria-label={`Open game ${game.ordinal} on the scoreboard`}
-            className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+            className={`${editable && !locked ? '' : 'ml-auto '}flex h-7 w-7 shrink-0 items-center justify-center rounded-full`}
             style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
           >
             <ChevronRight size={15} />
@@ -116,15 +179,15 @@ export default function MatchCard({
         <Side
           ids={teamA}
           members={members}
-          score={game.scoreA}
+          score={sets ? live.a : shown.a}
           won={aLeads}
           lost={bLeads}
-          editable={editable && !locked}
+          editable={editable && !locked && !sets}
           value={draft.a}
           onChange={(v) => setDraft((d) => ({ ...d, a: v }))}
           onEnter={save}
           label={`First score for ${label ?? `game ${game.ordinal}`}`}
-          played={played}
+          played={played || (sets && bothTyped)}
         />
         <span className="font-sans text-xs font-bold" style={{ color: 'var(--text-lo)' }}>
           vs
@@ -132,17 +195,34 @@ export default function MatchCard({
         <Side
           ids={teamB}
           members={members}
-          score={game.scoreB}
+          score={sets ? live.b : shown.b}
           won={bLeads}
           lost={aLeads}
-          editable={editable && !locked}
+          editable={editable && !locked && !sets}
           value={draft.b}
           onChange={(v) => setDraft((d) => ({ ...d, b: v }))}
           onEnter={save}
           label={`Second score for ${label ?? `game ${game.ordinal}`}`}
-          played={played}
+          played={played || (sets && bothTyped)}
         />
       </div>
+
+      {/* The sets themselves. Editable while entering, and a plain line
+          underneath the result once it is saved. */}
+      {sets && editable && !locked && (
+        <SetEntry
+          draft={setDraftRows}
+          onChange={setSetDraftRows}
+          disabled={busy}
+          label={label ?? `game ${game.ordinal}`}
+        />
+      )}
+
+      {isMultiSet(game) && !(sets && editable && !locked) && (
+        <p className="num font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+          {setsLine(game)}
+        </p>
+      )}
 
       {locked && lockedNote && (
         <p

@@ -10,6 +10,7 @@ import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import MatchCard from '../components/scoreboard/MatchCard.jsx';
 import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
+import { winnerOf, displayScore, isMultiSet } from '../utils/sets.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
 import { buildResultsShare } from '../utils/sessionShare.js';
 import { shareText } from '../utils/share.js';
@@ -298,8 +299,11 @@ export default function TodayPage() {
               }}
             >
               {recent.map((g, i) => {
-                const aWon = g.scoreA > g.scoreB;
+                // winnerOf(), not a score comparison: a best-of-three can be won
+                // by the side with fewer points. See utils/sets.js.
+                const aWon = winnerOf(g) === 'a';
                 const winners = aWon ? g.teamA : g.teamB;
+                const shown = displayScore(g);
                 return (
                   <div
                     key={g.id}
@@ -321,7 +325,10 @@ export default function TodayPage() {
                       className="num font-display text-sm font-bold"
                       style={{ color: 'var(--text-lo)' }}
                     >
-                      {Math.max(g.scoreA, g.scoreB)}–{Math.min(g.scoreA, g.scoreB)}
+                      {Math.max(shown.a, shown.b)}–{Math.min(shown.a, shown.b)}
+                      {isMultiSet(g) && (
+                        <span className="ml-1 font-sans text-[11px] font-semibold">sets</span>
+                      )}
                     </span>
                   </div>
                 );

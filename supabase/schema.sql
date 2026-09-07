@@ -189,6 +189,29 @@ create unique index if not exists games_session_slot_key
   on public.games(session_id, slot)
   where slot is not null;
 
+-- Matches played as sets rather than as one game — a playoff is often best of
+-- three to 11. Empty means a single game, which is what every game written
+-- before this existed was.
+--
+-- score_a/score_b stay alongside them, holding the TOTAL points across the sets,
+-- so points for, against and difference keep counting what they always counted.
+-- What they must NOT decide any more is who won: 11-9, 5-11, 11-9 is won two
+-- sets to one by a side that scored 27 to 29. See src/utils/sets.js winnerOf().
+alter table public.games add column if not exists sets_a int[] not null default '{}';
+alter table public.games add column if not exists sets_b int[] not null default '{}';
+
+do $$
+begin
+  alter table public.games
+    add constraint games_sets_shape_check
+    check (
+      coalesce(array_length(sets_a, 1), 0) = coalesce(array_length(sets_b, 1), 0)
+      and coalesce(array_length(sets_a, 1), 0) <= 3
+    );
+exception
+  when duplicate_object then null;
+end $$;
+
 create index if not exists games_session_idx on public.games(session_id, ordinal);
 
 -- ---------------------------------------------------------------- score_events
@@ -214,6 +237,10 @@ create table if not exists public.score_events (
 -- nothing but the score showing in the log.
 alter table public.score_events add column if not exists team_a uuid[];
 alter table public.score_events add column if not exists team_b uuid[];
+
+-- The set scores are part of a score change too, so they belong in the trail.
+alter table public.score_events add column if not exists sets_a int[];
+alter table public.score_events add column if not exists sets_b int[];
 
 create index if not exists score_events_game_idx
   on public.score_events(game_id, created_at desc);

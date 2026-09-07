@@ -9,6 +9,8 @@
 // individually even though they're scored as a team — that matches how the
 // format is actually played.
 
+import { winnerOf } from './sets.js';
+
 export const EMPTY_ROW = {
   gp: 0, w: 0, l: 0, t: 0, pf: 0, pa: 0, diff: 0, streak: 0, winPct: 0,
 };
@@ -31,8 +33,13 @@ export function computeStandings(players, games) {
   const scored = games.filter(isScored).slice().sort((a, b) => a.ordinal - b.ordinal);
 
   for (const g of scored) {
-    const aWon = g.scoreA > g.scoreB;
-    const tie = g.scoreA === g.scoreB;
+    // Not `scoreA > scoreB`. A best-of-three can be won 2–1 by the side that
+    // scored fewer points overall, so who won is a question for winnerOf().
+    // Points for and against still come from the totals, which is what
+    // scoreA/scoreB hold for a set match. See utils/sets.js.
+    const winner = winnerOf(g);
+    const aWon = winner === 'a';
+    const tie = winner === null;
 
     const credit = (ids, forPts, againstPts, won) => {
       for (const id of ids) {

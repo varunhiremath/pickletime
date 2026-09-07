@@ -8,11 +8,12 @@
 //
 // Two renderings share this one derivation:
 //   * bracketTreeLines() — the text that goes into the WhatsApp message.
-//   * components/bracket/BracketChart.jsx — the image, via bracketChartLayout().
+//   * utils/resultsImage.js — the picture.
 //
 // Pure. A bracket in, plain data out. No DOM, no canvas, no clock.
 
 import { SLOT } from './bracket.js';
+import { isMultiSet, displayScore, setPairs } from './sets.js';
 
 /**
  * Which seeds a side is made of.
@@ -63,6 +64,10 @@ export function bracketTree({ bracket, nameOf } = {}) {
   const standings = bracket.standings ?? [];
 
   return (bracket.matches ?? []).map((m) => {
+    // A set match is reported by sets won — "2–1" — with the set scores
+    // alongside, which is how a set result is written. See utils/sets.js.
+    const shown = displayScore(m.game ?? {});
+    const asSets = isMultiSet(m.game ?? {});
     const side = (ids, score) => ({
       ids: ids ?? [],
       name: ids?.length ? name(ids) : null,
@@ -84,7 +89,15 @@ export function bracketTree({ bracket, nameOf } = {}) {
       played: m.played,
       drawn: m.drawn,
       medal,
-      sides: [side(m.teamA, m.scoreA), side(m.teamB, m.scoreB)],
+      sets: asSets,
+      // The raw pairs, not a formatted string: the line is written winner-first,
+      // so when side B took it every set has to be flipped too. A pre-formatted
+      // "11–9, 5–11, 11–9" would have come out backwards against the names.
+      setPairs: asSets ? setPairs(m.game) : [],
+      sides: [
+        side(m.teamA, asSets ? shown.a : m.scoreA),
+        side(m.teamB, asSets ? shown.b : m.scoreB),
+      ],
       advances: m.winner && !m.drawn ? name(m.winner) : null,
       // What the win is actually worth, in words, because "→ Ana & Ben" on its
       // own does not say whether they have won the thing or merely progressed.
@@ -95,6 +108,10 @@ export function bracketTree({ bracket, nameOf } = {}) {
     };
   });
 }
+
+/** "11–9, 5–11, 11–9", flipped when the winning side is written first. */
+export const setsText = (pairs = [], flip = false) =>
+  pairs.map(([a, b]) => (flip ? `${b}–${a}` : `${a}–${b}`)).join(', ');
 
 const sameSide = (a, b) =>
   Array.isArray(a) && Array.isArray(b) &&
@@ -132,8 +149,12 @@ export function bracketTreeLines({ bracket, nameOf } = {}) {
     const label = (s) => [seedLabel(s.seeds), s.name].filter(Boolean).join(' ');
 
     const tied = node.drawn ? ' (tied)' : '';
+    // The set scores in brackets after the sets won, so "2–1 (11–9, 5–11, 11–9)"
+    // reads as the result it is rather than as a mysterious small number. Read
+    // in the same order as the names: flipped when the second side led.
+    const detail = node.sets ? ` (${setsText(node.setPairs, b.won)})` : '';
     lines.push(
-      `${node.label}: ${label(first)} ${first.score}–${second.score} ${label(second)}${tied}`
+      `${node.label}: ${label(first)} ${first.score}–${second.score}${detail} ${label(second)}${tied}`
     );
 
     if (node.drawn) {

@@ -23,6 +23,7 @@
 // Pure: players and games in, a bracket out. No DB, no clock, no DOM.
 
 import { computeStandings } from './standings.js';
+import { winnerOf } from './sets.js';
 
 export const STAGE = {
   RR: 'rr',
@@ -172,11 +173,13 @@ const isScored = (g) => Boolean(g?.played && g.scoreA != null && g.scoreB != nul
  */
 export function outcome(game) {
   if (!isScored(game)) return { winner: null, loser: null };
-  if (game.scoreA === game.scoreB) return { winner: null, loser: null };
-  const aWon = game.scoreA > game.scoreB;
+  // winnerOf(), not a score comparison: a best-of-three is won two sets to one
+  // by a side that can have scored fewer points overall. See utils/sets.js.
+  const side = winnerOf(game);
+  if (!side) return { winner: null, loser: null };
   return {
-    winner: aWon ? game.teamA : game.teamB,
-    loser: aWon ? game.teamB : game.teamA,
+    winner: side === 'a' ? game.teamA : game.teamB,
+    loser: side === 'a' ? game.teamB : game.teamA,
   };
 }
 
@@ -348,9 +351,10 @@ export function resolveBracket(entrants, games) {
       scoreA: game?.scoreA ?? null,
       scoreB: game?.scoreB ?? null,
       played: isScored(game),
-      // A knockout that has been scored level: a real state the UI must show,
+      // A knockout that has been scored but has no winner — level on points, or
+      // a set match nobody has taken two sets of. A real state the UI must show,
       // because nothing downstream can move until it is corrected.
-      drawn: isScored(game) && game.scoreA === game.scoreB,
+      drawn: isScored(game) && !winnerOf(game),
       winner,
       loser,
     });

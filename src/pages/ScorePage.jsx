@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Check, Maximize2, RotateCcw, Lock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, Maximize2, RotateCcw, Lock, Layers } from 'lucide-react';
 import TopBar from '../components/layout/TopBar.jsx';
 import Chip from '../components/ui/Chip.jsx';
 import Button from '../components/ui/Button.jsx';
@@ -15,6 +15,10 @@ import { playChime, playError } from '../utils/sound.js';
 import {
   resolveBracket, isKnockout, slotLabel, slotShortLabel,
 } from '../utils/bracket.js';
+import SetEntry from '../components/score/SetEntry.jsx';
+import {
+  BEST_OF, isMultiSet, normaliseSets, draftFrom, emptyDraft,
+} from '../utils/sets.js';
 
 export default function ScorePage() {
   const { session, games, members } = useSessionStore();
@@ -40,6 +44,8 @@ export default function ScorePage() {
     return idx === -1 ? Math.max(0, games.length - 1) : idx;
   }, [games]);
 
+  const [sets, setSets] = useState(false);
+  const [setRows, setSetRows] = useState(emptyDraft);
   const [fallbackIndex, setFallbackIndex] = useState(firstUnplayed);
   const index = requestedIndex !== -1 ? requestedIndex : Math.min(fallbackIndex, games.length - 1);
   const game = games[index];
@@ -58,7 +64,11 @@ export default function ScorePage() {
   useEffect(() => {
     if (!game) return;
     setDraft({ a: game.scoreA, b: game.scoreB });
-  }, [game?.id, game?.scoreA, game?.scoreB]);
+    // A saved best-of-three re-opens as one, and switching game resets the
+    // rows — otherwise the previous fixture's sets would follow you along.
+    setSets(isMultiSet(game));
+    setSetRows(draftFrom(game));
+  }, [game?.id, game?.scoreA, game?.scoreB, game?.setsA, game?.setsB]);
 
   // Keep the open game visible in the strip when it changes from underneath —
   // a deep link, or advancing after a save.
@@ -95,14 +105,32 @@ export default function ScorePage() {
 
   const a = draft.a ?? 0;
   const b = draft.b ?? 0;
+
+  const setCheck = normaliseSets(setRows);
+  const setsDirty =
+    setCheck.ok &&
+    (setCheck.setsA.join() !== (game.setsA ?? []).join() ||
+      setCheck.setsB.join() !== (game.setsB ?? []).join());
+
   const dirty = draft.a !== game.scoreA || draft.b !== game.scoreB;
-  const canSubmit = draft.a != null && draft.b != null && dirty && !locked;
+  const canSubmit = !locked && (sets ? setsDirty : draft.a != null && draft.b != null && dirty);
 
   const submit = async () => {
     try {
       // For a knockout game the line-up travels with the score: entering it is
       // what turns "seed 1 vs seed 4" into a record of who actually played.
-      await getBackend().submitScore(game.id, a, b, match ? { teamA, teamB } : null);
+      // For a set match the totals are derived from the sets by the backend, so
+      // the a/b passed here are ignored. See utils/sets.js.
+      const opts = {
+        ...(match ? { teamA, teamB } : {}),
+        ...(sets ? { setsA: setCheck.setsA, setsB: setCheck.setsB } : {}),
+      };
+      await getBackend().submitScore(
+        game.id,
+        sets ? null : a,
+        sets ? null : b,
+        Object.keys(opts).length ? opts : null
+      );
       haptic('win');
       playChime();
       setBurst(true);
@@ -203,6 +231,25 @@ export default function ScorePage() {
               {session.courts > 1 && <Chip tone="court">Court {game.court}</Chip>}
               {game.played && <Chip tone="optic">Final</Chip>}
             </div>
+            {!locked && (
+              <button
+                onClick={() => {
+                  const next = !sets;
+                  setSets(next);
+                  setSetRows(next ? draftFrom(game) : emptyDraft());
+                }}
+                aria-pressed={sets}
+                className="flex items-center gap-1 font-sans text-[11px] font-bold uppercase tracking-wider"
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-full)',
+                  background: sets ? 'var(--optic)' : 'var(--bg-raised)',
+                  color: sets ? 'var(--text-on-accent)' : 'var(--text-lo)',
+                }}
+              >
+                <Layers size={12} /> Best of {BEST_OF}
+              </button>
+            )}
           </div>
 
           <button
@@ -217,26 +264,34 @@ export default function ScorePage() {
         </div>
 
         {/* The scoreboard */}
-        <div className="flex items-stretch gap-3">
-          <ScorePad
-            side="A"
-            ids={teamA}
-            members={members}
-            score={draft.a}
-            onChange={(v) => setDraft((d) => ({ ...d, a: v }))}
-            won={draft.a != null && draft.b != null && a > b}
-            pointsTo={session.pointsTo}
+        {sets ? (
+          <SetEntry
+            draft={setRows}
+            onChange={setSetRows}
+            label={slotLabel(game) ?? `game ${game.ordinal}`}
           />
-          <ScorePad
-            side="B"
-            ids={teamB}
-            members={members}
-            score={draft.b}
-            onChange={(v) => setDraft((d) => ({ ...d, b: v }))}
-            won={draft.a != null && draft.b != null && b > a}
-            pointsTo={session.pointsTo}
-          />
-        </div>
+        ) : (
+          <div className="flex items-stretch gap-3">
+            <ScorePad
+              side="A"
+              ids={teamA}
+              members={members}
+              score={draft.a}
+              onChange={(v) => setDraft((d) => ({ ...d, a: v }))}
+              won={draft.a != null && draft.b != null && a > b}
+              pointsTo={session.pointsTo}
+            />
+            <ScorePad
+              side="B"
+              ids={teamB}
+              members={members}
+              score={draft.b}
+              onChange={(v) => setDraft((d) => ({ ...d, b: v }))}
+              won={draft.a != null && draft.b != null && b > a}
+              pointsTo={session.pointsTo}
+            />
+          </div>
+        )}
 
         {locked && (
           <p
