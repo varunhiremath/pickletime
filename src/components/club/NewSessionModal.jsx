@@ -2,8 +2,35 @@ import { useState, useMemo, useEffect } from 'react';
 import Modal from '../ui/Modal.jsx';
 import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
-import { FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape } from '../../utils/schedule.js';
-import { BRACKET_SIZE } from '../../utils/bracket.js';
+import {
+  FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape,
+  playoffShapesFor, resolvePlayoffShape,
+} from '../../utils/schedule.js';
+import { BRACKET_SIZE, SHAPES, slotsForShape } from '../../utils/bracket.js';
+
+/**
+ * How each finish is described when there is a choice between them.
+ *
+ * The Page system's whole point is that topping the table is worth something —
+ * seeds 1 and 2 get two chances at the grand final — so that is what the blurb
+ * says, rather than listing five fixtures nobody will match to a diagram.
+ */
+const SHAPE_COPY = {
+  [SHAPES.KNOCKOUT]: {
+    title: 'Straight knockout',
+    blurb: (format) =>
+      `1 v 4 and 2 v 3 in the semifinals, then a third-place game and a final. Lose once and you are out.`,
+  },
+  [SHAPES.PAGE]: {
+    title: 'Page playoff',
+    blurb: () =>
+      '1 v 2 and 3 v 4 first. The 1 v 2 winner goes straight to the grand final; its loser gets a second chance against the 3 v 4 winner. Five games.',
+  },
+  [SHAPES.FINAL_ONLY]: {
+    title: 'One deciding game',
+    blurb: () => 'Seeds 1 & 4 against seeds 2 & 3.',
+  },
+};
 import TeamPicker from './TeamPicker.jsx';
 import { drawAll, pruneToField, isComplete } from '../../utils/teamDraft.js';
 import { randomSeed } from '../../utils/rng.js';
@@ -87,6 +114,9 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   const [courts, setCourts] = useState(settings.lastCourts);
   const [pointsTo, setPointsTo] = useState(settings.lastPointsTo);
   const [playoffs, setPlayoffs] = useState(true);
+  // The chosen finish. Kept across a format switch — resolvePlayoffShape falls
+  // back when the new format cannot run it, so nothing has to be reset here.
+  const [shape, setShape] = useState(SHAPES.KNOCKOUT);
   const [teams, setTeams] = useState([]);
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -148,6 +178,10 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
 
   const playoffsAvailable = canRunPlayoffs({ format, playerCount: playerIds.length });
   const wantsPlayoffs = playoffs && playoffsAvailable;
+  const shapeChoices = playoffShapesFor(format);
+  // Counted from the shape's own slot table rather than hardcoded: the Page
+  // system is five fixtures, the bracket four, the Americano finish one.
+  const playoffGames = slotsForShape(resolvePlayoffShape(format, shape) ?? undefined).length;
 
   const toggle = (id) => {
     setPicked((prev) => {
@@ -176,7 +210,9 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
         numGames,
         courts: Math.min(courts, maxCourts),
         pointsTo,
-        playoffs: wantsPlayoffs,
+        // The shape, not just a boolean: generateSchedule falls back to the
+        // format's default if this one does not apply to it.
+        playoffs: wantsPlayoffs && (resolvePlayoffShape(format, shape) ?? true),
         teams: format === FORMATS.PAIRS ? teams : undefined,
       });
       onClose();
@@ -421,10 +457,43 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
                     : `Needs at least ${BRACKET_SIZE} players.`
                   : format === FORMATS.AMERICANO
                     ? 'Top four pair up for one deciding game — seeds 1 & 4 against 2 & 3.'
-                    : `Top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} into semifinals, then a third-place game and a final.`}
+                    : `The top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} play it out — pick how below.`}
               </span>
             </span>
           </button>
+        )}
+
+        {/* Which finish. Only when there is a choice to make: Americano has one
+            shape, so offering it a picker of one would be noise. */}
+        {wantsPlayoffs && shapeChoices.length > 1 && (
+          <div className="flex flex-col gap-1.5">
+            {shapeChoices.map((s) => {
+              const active = shape === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => setShape(s)}
+                  aria-pressed={active}
+                  className="text-left"
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    background: active
+                      ? 'color-mix(in srgb, var(--gold) 14%, transparent)'
+                      : 'var(--bg-raised)',
+                    border: `1.5px solid ${active ? 'var(--gold)' : 'transparent'}`,
+                  }}
+                >
+                  <span className="block font-sans text-sm font-bold" style={{ color: 'var(--text-hi)' }}>
+                    {SHAPE_COPY[s].title}
+                  </span>
+                  <span className="block font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                    {SHAPE_COPY[s].blurb(format)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         )}
 
         {format === FORMATS.SINGLES && enough && (
@@ -434,7 +503,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               {(playerIds.length * (playerIds.length - 1)) / 2} games
             </strong>{' '}
             — {playerIds.length - 1} each
-            {wantsPlayoffs ? ', plus four playoff games' : ''}.
+            {wantsPlayoffs ? `, plus ${playoffGames} playoff games` : ''}.
           </p>
         )}
 
@@ -448,7 +517,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
               <>
                 <strong style={{ color: 'var(--text-hi)' }}>{teamCount} teams</strong> playing{' '}
                 {(teamCount * (teamCount - 1)) / 2} games
-                {wantsPlayoffs ? ' plus four playoff games' : ''}. Partners are fixed all session —
+                {wantsPlayoffs ? ` plus ${playoffGames} playoff games` : ''}. Partners are fixed all session —
                 you can change the teams from the Club tab until someone scores.
               </>
             ) : (

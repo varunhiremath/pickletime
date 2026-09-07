@@ -35,6 +35,12 @@ export const STAGE = {
 export const SLOT = {
   SF1: 'sf1',
   SF2: 'sf2',
+  // The Page system's three earlier rounds. They carry stage 'sf' like the
+  // semifinals do, so no database change was needed to add the shape — `stage`
+  // is a coarse rr/knockout marker and `slot` is what identifies the fixture.
+  QUALIFIER: 'qf',
+  ELIMINATOR: 'ef',
+  PRELIM: 'pf',
   BRONZE: 'bronze',
   FINAL: 'final',
 };
@@ -67,6 +73,7 @@ export const teamKey = (ids) => [...ids].sort().join('+');
 export const SHAPES = {
   KNOCKOUT: 'knockout',
   FINAL_ONLY: 'final_only',
+  PAGE: 'page',
 };
 
 // The knockout fixtures, in the order they are played. `seeds` names which
@@ -79,6 +86,8 @@ export const BRACKET_SLOTS = [
     label: 'Semifinal 1',
     short: 'SF1',
     source: 'Seed 1 vs Seed 4',
+    group: 'Semifinals',
+    advance: 'into the final',
     seeds: [0, 3],
     roundOffset: 1,
   },
@@ -88,6 +97,8 @@ export const BRACKET_SLOTS = [
     label: 'Semifinal 2',
     short: 'SF2',
     source: 'Seed 2 vs Seed 3',
+    group: 'Semifinals',
+    advance: 'into the final',
     seeds: [1, 2],
     roundOffset: 1,
   },
@@ -97,6 +108,9 @@ export const BRACKET_SLOTS = [
     label: '3rd place',
     short: '3rd',
     source: 'Semifinal losers',
+    group: 'Finals',
+    advance: 'third place',
+    medal: '🥉',
     feeds: [
       { slot: SLOT.SF1, take: 'loser' },
       { slot: SLOT.SF2, take: 'loser' },
@@ -109,11 +123,102 @@ export const BRACKET_SLOTS = [
     label: 'Final',
     short: 'Final',
     source: 'Semifinal winners',
+    group: 'Finals',
+    advance: 'champions',
+    medal: '🏆',
     feeds: [
       { slot: SLOT.SF1, take: 'winner' },
       { slot: SLOT.SF2, take: 'winner' },
     ],
     roundOffset: 2,
+  },
+];
+
+/**
+ * The Page playoff system — https://en.wikipedia.org/wiki/Page_playoff_system
+ *
+ * The point of it is that finishing top of the table is worth something: seeds
+ * 1 and 2 get TWO chances to reach the grand final, and 3 and 4 get one. Lose
+ * the qualifying final and you drop into the preliminary final rather than out
+ * of the tournament.
+ *
+ *   Qualifying final    1 v 2            winner → grand final
+ *   Elimination final   3 v 4            loser is done
+ *   Preliminary final   QF loser v EF winner   winner → grand final
+ *   3rd place           EF loser v PF loser
+ *   Grand final         QF winner v PF winner
+ *
+ * The third-place game is a deliberate addition rather than part of the system
+ * as described: in the original, the preliminary final's loser simply finishes
+ * third. A club playing this wanted the two knocked-out sides to play it off,
+ * which also gives everyone the same number of games.
+ */
+export const PAGE_SLOTS = [
+  {
+    slot: SLOT.QUALIFIER,
+    stage: STAGE.SEMI,
+    label: 'Qualifying final',
+    short: '1v2',
+    source: 'Seed 1 vs Seed 2',
+    group: 'Qualifying round',
+    advance: 'straight into the grand final',
+    seeds: [0, 1],
+    roundOffset: 1,
+  },
+  {
+    slot: SLOT.ELIMINATOR,
+    stage: STAGE.SEMI,
+    label: 'Elimination final',
+    short: '3v4',
+    source: 'Seed 3 vs Seed 4',
+    group: 'Qualifying round',
+    advance: 'into the preliminary final',
+    seeds: [2, 3],
+    roundOffset: 1,
+  },
+  {
+    slot: SLOT.PRELIM,
+    stage: STAGE.SEMI,
+    label: 'Preliminary final',
+    short: 'Prelim',
+    source: 'Qualifying final loser vs elimination final winner',
+    group: 'Preliminary final',
+    advance: 'into the grand final',
+    feeds: [
+      { slot: SLOT.QUALIFIER, take: 'loser' },
+      { slot: SLOT.ELIMINATOR, take: 'winner' },
+    ],
+    roundOffset: 2,
+  },
+  {
+    slot: SLOT.BRONZE,
+    stage: STAGE.BRONZE,
+    label: '3rd place',
+    short: '3rd',
+    source: 'Elimination final loser vs preliminary final loser',
+    group: 'Finals',
+    advance: 'third place',
+    medal: '🥉',
+    feeds: [
+      { slot: SLOT.ELIMINATOR, take: 'loser' },
+      { slot: SLOT.PRELIM, take: 'loser' },
+    ],
+    roundOffset: 3,
+  },
+  {
+    slot: SLOT.FINAL,
+    stage: STAGE.FINAL,
+    label: 'Grand final',
+    short: 'Final',
+    source: 'Qualifying final winner vs preliminary final winner',
+    group: 'Finals',
+    advance: 'champions',
+    medal: '🏆',
+    feeds: [
+      { slot: SLOT.QUALIFIER, take: 'winner' },
+      { slot: SLOT.PRELIM, take: 'winner' },
+    ],
+    roundOffset: 3,
   },
 ];
 
@@ -125,6 +230,10 @@ export const FINAL_ONLY_SLOTS = [
     label: 'Final',
     short: 'Final',
     source: 'Seeds 1 & 4 vs Seeds 2 & 3',
+    // No group heading: one fixture needs no heading above it.
+    group: null,
+    advance: 'champions',
+    medal: '🏆',
     pairs: [[0, 3], [1, 2]],
     roundOffset: 1,
   },
@@ -133,10 +242,14 @@ export const FINAL_ONLY_SLOTS = [
 const SLOTS_FOR = {
   [SHAPES.KNOCKOUT]: BRACKET_SLOTS,
   [SHAPES.FINAL_ONLY]: FINAL_ONLY_SLOTS,
+  [SHAPES.PAGE]: PAGE_SLOTS,
 };
 
-/** Every slot definition, for labelling a fixture wherever it turns up. */
-const ALL_SLOTS = [...BRACKET_SLOTS, ...FINAL_ONLY_SLOTS];
+/** The slot definitions for a shape, defaulting to the full bracket. */
+export const slotsForShape = (shape) => SLOTS_FOR[shape] ?? BRACKET_SLOTS;
+
+/** Every slot definition, for labelling a fixture whose shape is unknown. */
+const ALL_SLOTS = [...BRACKET_SLOTS, ...PAGE_SLOTS, ...FINAL_ONLY_SLOTS];
 
 /**
  * Which shape a session's finish is, read off the fixtures themselves.
@@ -147,9 +260,10 @@ const ALL_SLOTS = [...BRACKET_SLOTS, ...FINAL_ONLY_SLOTS];
 export function shapeOf(games) {
   const ko = knockoutGames(games);
   if (ko.length === 0) return null;
-  return ko.some((g) => g.slot === SLOT.SF1 || g.slot === SLOT.SF2)
-    ? SHAPES.KNOCKOUT
-    : SHAPES.FINAL_ONLY;
+  const slots = new Set(ko.map((g) => g.slot));
+  if (slots.has(SLOT.QUALIFIER) || slots.has(SLOT.PRELIM)) return SHAPES.PAGE;
+  if (slots.has(SLOT.SF1) || slots.has(SLOT.SF2)) return SHAPES.KNOCKOUT;
+  return SHAPES.FINAL_ONLY;
 }
 
 const stageOf = (g) => g?.stage ?? STAGE.RR;
@@ -342,7 +456,13 @@ export function resolveBracket(entrants, games) {
       slot: def.slot,
       stage: def.stage,
       label: def.label,
+      short: def.short,
       source: def.source,
+      // Carried from the slot table rather than worked out downstream, so a new
+      // shape is a table entry and not a special case in three renderers.
+      group: def.group ?? null,
+      advance: def.advance,
+      medal: def.medal ?? null,
       game,
       teamA,
       teamB,
@@ -425,13 +545,21 @@ function deriveSides(def, { qualifiers, resolved, enoughEntrants }) {
  * Which slot, if any, a game belongs to — used to label a fixture wherever it is
  * shown outside the bracket itself (the Matches list, the Score screen).
  */
-export function slotLabel(game) {
+function slotDef(game, shape) {
+  // The shape's own table first: 'final' is the "Final" of a knockout and the
+  // "Grand final" of a Page playoff, and picking whichever came first in a
+  // concatenated list would name half of them wrong.
+  const own = shape ? slotsForShape(shape).find((d) => d.slot === game.slot) : null;
+  return own ?? ALL_SLOTS.find((d) => d.slot === game.slot) ?? null;
+}
+
+export function slotLabel(game, shape) {
   if (!game || isRoundRobin(game)) return null;
-  return ALL_SLOTS.find((d) => d.slot === game.slot)?.label ?? 'Playoff';
+  return slotDef(game, shape)?.label ?? 'Playoff';
 }
 
 /** The same, abbreviated to fit a pill in the game strip. */
-export function slotShortLabel(game) {
+export function slotShortLabel(game, shape) {
   if (!game || isRoundRobin(game)) return null;
-  return ALL_SLOTS.find((d) => d.slot === game.slot)?.short ?? 'PO';
+  return slotDef(game, shape)?.short ?? 'PO';
 }

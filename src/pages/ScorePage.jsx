@@ -13,7 +13,7 @@ import { toast } from '../store/uiStore.js';
 import { useHaptics } from '../hooks/useHaptics.js';
 import { playChime, playError } from '../utils/sound.js';
 import {
-  resolveBracket, isKnockout, slotLabel, slotShortLabel,
+  resolveBracket, isKnockout, slotLabel, slotShortLabel, shapeOf,
 } from '../utils/bracket.js';
 import SetEntry from '../components/score/SetEntry.jsx';
 import {
@@ -30,6 +30,9 @@ export default function ScorePage() {
   // and gets seeded into a semifinal is the team. See utils/entrants.js.
   const { entrants, teamPlay } = useSessionStore((s) => s.sessionEntrants());
   const bracket = useMemo(() => resolveBracket(entrants, games), [entrants, games]);
+  // 'final' is the "Final" of a knockout and the "Grand final" of a Page
+  // playoff, so a label lookup has to know which shape it is in.
+  const shape = useMemo(() => shapeOf(games), [games]);
 
   // Which game is open.
   //
@@ -177,13 +180,13 @@ export default function ScorePage() {
       <div ref={stripRef} className="no-scrollbar mb-4 flex gap-1.5 overflow-x-auto px-4">
         {games.map((g, i) => {
           const current = i === index;
-          const short = slotShortLabel(g);
+          const short = slotShortLabel(g, shape);
           return (
             <button
               key={g.id}
               data-current={current}
               onClick={() => goTo(i)}
-              aria-label={short ? `Go to ${slotLabel(g)}` : `Go to game ${g.ordinal}`}
+              aria-label={short ? `Go to ${slotLabel(g, shape)}` : `Go to game ${g.ordinal}`}
               aria-current={current ? 'true' : undefined}
               className="num shrink-0 font-display text-[13px] font-bold tabular-nums"
               style={{
@@ -224,7 +227,7 @@ export default function ScorePage() {
 
           <div className="flex flex-col items-center gap-1">
             <span className="font-display num text-sm font-bold" style={{ color: 'var(--text-hi)' }}>
-              {slotLabel(game) ?? `Game ${game.ordinal} of ${games.length}`}
+              {slotLabel(game, shape) ?? `Game ${game.ordinal} of ${games.length}`}
             </span>
             <div className="flex items-center gap-1.5">
               {match ? <Chip tone="gold">{match.source}</Chip> : <Chip>Round {game.round}</Chip>}
@@ -268,7 +271,7 @@ export default function ScorePage() {
           <SetEntry
             draft={setRows}
             onChange={setSetRows}
-            label={slotLabel(game) ?? `game ${game.ordinal}`}
+            label={slotLabel(game, shape) ?? `game ${game.ordinal}`}
           />
         ) : (
           <div className="flex items-stretch gap-3">

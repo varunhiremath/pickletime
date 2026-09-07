@@ -1,8 +1,9 @@
+import { Fragment } from 'react';
 import { Trophy, Lock, AlertTriangle } from 'lucide-react';
 import MatchCard from '../scoreboard/MatchCard.jsx';
 import Podium from './Podium.jsx';
 import { Faces } from '../scoreboard/PlayerChip.jsx';
-import { SLOT, BRACKET_SIZE, SHAPES } from '../../utils/bracket.js';
+import { BRACKET_SIZE, SHAPES } from '../../utils/bracket.js';
 
 function Heading({ children }) {
   return (
@@ -33,8 +34,17 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
   // The Americano finish is one game. Heading it "Semifinals" and "Finals" would
   // promise rounds that do not exist.
   const oneGame = bracket.shape === SHAPES.FINAL_ONLY;
-  const semis = matches.filter((m) => m.slot === SLOT.SF1 || m.slot === SLOT.SF2);
-  const finals = matches.filter((m) => m.slot === SLOT.FINAL || m.slot === SLOT.BRONZE);
+
+  // Grouped by the heading each shape's slot table gives its fixtures, in play
+  // order — "Semifinals / Finals" for the bracket, "Qualifying round /
+  // Preliminary final / Finals" for the Page system. Reading the groups off the
+  // matches means a new shape needs no new branch here.
+  const groups = [];
+  for (const m of matches) {
+    const last = groups[groups.length - 1];
+    if (last && last.title === m.group) last.matches.push(m);
+    else groups.push({ title: m.group, matches: [m] });
+  }
 
   // Written inline rather than as a local <Fixture> component, deliberately: a
   // component declared in a render body is a new type every render, so React
@@ -103,17 +113,14 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
         </p>
       )}
 
-      {oneGame ? (
-        matches.map(fixture)
-      ) : (
-        <>
-          <Heading>Semifinals</Heading>
-          {semis.map(fixture)}
-
-          <Heading>Finals</Heading>
-          {finals.map(fixture)}
-        </>
-      )}
+      {oneGame
+        ? matches.map(fixture)
+        : groups.map((g) => (
+            <Fragment key={g.title ?? 'ungrouped'}>
+              {g.title && <Heading>{g.title}</Heading>}
+              {g.matches.map(fixture)}
+            </Fragment>
+          ))}
     </section>
   );
 }

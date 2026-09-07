@@ -9,7 +9,7 @@
 // The structure comes from utils/bracketTree.js; this file decides nothing
 // about who beat whom, only where to put it.
 
-import { SLOT } from './bracket.js';
+import { SLOT, SHAPES } from './bracket.js';
 import { bracketTree, seedLabel, setsText } from './bracketTree.js';
 import {
   C, W, PAD, font, newCanvas, toPng, clip, roundRect, card, header, footer, FOOTER_H,
@@ -21,6 +21,8 @@ const ROW_H = 52;
 const BOX_H = 34 + ROW_H * 2 + 14;
 // A set match needs one more line under the two sides for its set scores.
 const SETS_H = 26;
+// The "→ X into the grand final" line under a Page fixture.
+const NOTE_H = 30;
 const boxHeight = (node) => BOX_H + (node?.sets ? SETS_H : 0);
 const TABLE_ROW_H = 54;
 
@@ -70,7 +72,26 @@ function layout({ bracket, nodes, rows, url, subtitle }) {
   const boxes = [];
   const links = [];
 
-  if (semis.length === 2) {
+  if (bracket.shape === SHAPES.PAGE) {
+    // A ladder, not a bracket: five fixtures over three rounds, where losing the
+    // first one does not end your tournament. Drawing it as two columns feeding
+    // a final would misrepresent that, so it is stacked in play order and each
+    // box says what its winner earned.
+    for (const node of nodes) {
+      const h = boxHeight(node);
+      boxes.push({
+        node,
+        x: (W - WIDE_W) / 2,
+        y,
+        w: WIDE_W,
+        h,
+        crown: node.slot === SLOT.FINAL,
+        note: node.advances ? `${node.advances} ${node.advanceNote}` : null,
+      });
+      y += h + (node.advances ? NOTE_H : 0) + 26;
+    }
+    y += 8;
+  } else if (semis.length === 2) {
     const leftX = PAD;
     const rightX = W - PAD - BOX_W;
     const gap = 54;
@@ -100,7 +121,9 @@ function layout({ bracket, nodes, rows, url, subtitle }) {
     y += h + 34;
   }
 
-  if (bySlot[SLOT.BRONZE]) {
+  // Not for the Page ladder, which drew every one of its fixtures above — this
+  // block used to run for it too and put the third-place game on the card twice.
+  if (bracket.shape !== SHAPES.PAGE && bySlot[SLOT.BRONZE]) {
     // Centred and only half again as wide as a semifinal. At full width the
     // score ends up stranded a long way from the name it belongs to.
     const h = boxHeight(bySlot[SLOT.BRONZE]);
@@ -181,8 +204,17 @@ function drawPodium(ctx, { x, y, w, h }, bracket) {
   ctx.textAlign = 'left';
 }
 
-function drawFixture(ctx, { node, x, y, w, h, crown }) {
+function drawFixture(ctx, { node, x, y, w, h, crown, note }) {
   card(ctx, { x, y, w, h, label: node.label, accent: Boolean(crown) });
+
+  // What this fixture was worth, spelled out. In the Page system the two
+  // qualifying games send their winners to different places, and a stacked
+  // ladder has no arrows to say so.
+  if (note) {
+    ctx.font = font(700, 20);
+    ctx.fillStyle = node.medal ? C.gold : C.optic;
+    ctx.fillText(clip(ctx, `↳ ${node.medal ? `${node.medal} ` : ''}${note}`, w - 20), x + 8, y + h + 22);
+  }
   node.sides.forEach((side, i) => {
     drawSide(ctx, side, { x, y: y + 34 + i * ROW_H, w, played: node.played });
   });

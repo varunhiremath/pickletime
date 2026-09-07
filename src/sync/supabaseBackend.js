@@ -2,7 +2,7 @@ import { supabase, ensureSignedIn, currentUserId } from './supabaseClient.js';
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
 import { generateSchedule } from '../utils/schedule.js';
-import { roundRobinGames } from '../utils/bracket.js';
+import { roundRobinGames, shapeOf } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode, normalizeInviteCode } from '../utils/inviteCode.js';
@@ -576,7 +576,9 @@ export function createSupabaseBackend() {
         numGames: roundRobinGames(existing.games).length,
         courts: session.courts,
         seed: usedSeed,
-        playoffs: session.playoffs,
+        // The SHAPE the session already had, not just "it has playoffs" —
+        // reshuffling a Page playoff must not quietly turn it into a knockout.
+        playoffs: session.playoffs && (shapeOf(existing.games) ?? true),
         teams,
       });
 

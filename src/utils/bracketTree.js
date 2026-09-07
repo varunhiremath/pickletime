@@ -12,7 +12,6 @@
 //
 // Pure. A bracket in, plain data out. No DOM, no canvas, no clock.
 
-import { SLOT } from './bracket.js';
 import { isMultiSet, displayScore, setPairs } from './sets.js';
 
 /**
@@ -78,9 +77,6 @@ export function bracketTree({ bracket, nameOf } = {}) {
       won: Boolean(m.played && !m.drawn && m.winner && sameSide(ids, m.winner)),
     });
 
-    const medal =
-      m.slot === SLOT.FINAL ? '🏆' : m.slot === SLOT.BRONZE ? '🥉' : null;
-
     return {
       slot: m.slot,
       label: m.label,
@@ -88,7 +84,10 @@ export function bracketTree({ bracket, nameOf } = {}) {
       ready: m.ready,
       played: m.played,
       drawn: m.drawn,
-      medal,
+      // Off the match, which got them from the shape's slot table. Working them
+      // out here meant every new shape needed a new special case.
+      medal: m.medal ?? null,
+      group: m.group ?? null,
       sets: asSets,
       // The raw pairs, not a formatted string: the line is written winner-first,
       // so when side B took it every set has to be flipped too. A pre-formatted
@@ -100,11 +99,10 @@ export function bracketTree({ bracket, nameOf } = {}) {
       ],
       advances: m.winner && !m.drawn ? name(m.winner) : null,
       // What the win is actually worth, in words, because "→ Ana & Ben" on its
-      // own does not say whether they have won the thing or merely progressed.
-      advanceNote:
-        m.slot === SLOT.FINAL ? 'champions'
-        : m.slot === SLOT.BRONZE ? 'third place'
-        : 'into the final',
+      // own does not say whether they have won the thing or merely progressed —
+      // and in the Page system the two qualifying games are worth different
+      // things to their winners.
+      advanceNote: m.advance ?? 'through',
     };
   });
 }
