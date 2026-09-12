@@ -143,7 +143,7 @@ Push to `main`. The Actions workflow builds with your two variables baked in and
 publishes to Pages.
 
 Open the app: instead of "This device" in the header, you'll see a pulsing
-**Live** badge.
+**Synced** badge.
 
 ---
 
