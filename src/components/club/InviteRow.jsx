@@ -3,7 +3,7 @@ import { Copy, Check, Share2, KeyRound, Ban } from 'lucide-react';
 import Chip from '../ui/Chip.jsx';
 import { toast, confirmDialog } from '../../store/uiStore.js';
 import { useHaptics } from '../../hooks/useHaptics.js';
-import { buildJoinUrl, buildInviteMessage } from '../../utils/inviteLink.js';
+import { buildJoinUrl, buildInviteMessage, buildAppLinkMessage } from '../../utils/inviteLink.js';
 
 /**
  * The invite state for one roster row, admin-only.
@@ -17,7 +17,7 @@ import { buildJoinUrl, buildInviteMessage } from '../../utils/inviteLink.js';
  * of re-minted. Only the admin can see them — RLS blocks every other account
  * from reading the invites table at all.
  */
-export default function InviteRow({ member, invite, clubName, onMint, onRevoke }) {
+export default function InviteRow({ member, invite, clubName, appUrl, onMint, onRevoke }) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const haptic = useHaptics();
@@ -50,6 +50,23 @@ export default function InviteRow({ member, invite, clubName, onMint, onRevoke }
 
   const copy = () => writeToClipboard(invite.code);
 
+  /**
+   * Send the app's address and how to keep it, to somebody already on a device.
+   *
+   * Their code is spent, so re-sending the invite would be worse than useless.
+   * This exists because the session announcement is only a URL: a friend who
+   * never installed the app loses it the moment the chat scrolls.
+   */
+  const shareAppLink = async () => {
+    const text = buildAppLinkMessage({ clubName, memberName: member.name, url: appUrl });
+    try {
+      if (navigator.share) await navigator.share({ text });
+      else await writeToClipboard(text, 'Link copied — send it to them.');
+    } catch {
+      // Sheet dismissed.
+    }
+  };
+
   const share = async () => {
     const text = buildInviteMessage({
       clubName,
@@ -79,9 +96,9 @@ export default function InviteRow({ member, invite, clubName, onMint, onRevoke }
 
   const revoke = async () => {
     const ok = await confirmDialog({
-      title: `Revoke ${member.name}'s code?`,
+      title: claimed ? `Sign ${member.name} out and start again?` : `Revoke ${member.name}'s code?`,
       message: claimed
-        ? `Their phone loses access on its next request. ${member.name} stays on the roster and keeps their results — you can send them a new code any time.`
+        ? `Do this if ${member.name} needs to join on a different phone. Their current device loses access on its next request; they stay on the roster and keep their results, and you can mint them a fresh code straight after.`
         : 'The code stops working. You can mint a new one whenever you like.',
       confirmLabel: 'Revoke',
       danger: true,
@@ -98,17 +115,27 @@ export default function InviteRow({ member, invite, clubName, onMint, onRevoke }
 
   if (claimed) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Chip tone="optic">
           <Check size={10} /> Joined
         </Chip>
+        {/* Joined is not the end of it. Somebody who never installed the app
+            loses it as soon as the group chat scrolls, and used to have no way
+            back other than the admin revoking their code. */}
+        <button
+          onClick={shareAppLink}
+          className="flex items-center gap-1 font-sans text-xs font-semibold"
+          style={{ color: 'var(--optic-ink)' }}
+        >
+          <Share2 size={12} /> Send the link
+        </button>
         <button
           onClick={revoke}
           disabled={busy}
           className="flex items-center gap-1 font-sans text-xs font-semibold disabled:opacity-40"
           style={{ color: 'var(--clay)' }}
         >
-          <Ban size={12} /> Revoke
+          <Ban size={12} /> New code
         </button>
       </div>
     );

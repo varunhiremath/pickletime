@@ -211,6 +211,9 @@ declare
   v_score_a int := p_a;
   v_score_b int := p_b;
   v_n      int;
+  v_wins_a int;
+  v_wins_b int;
+  v_decided boolean := null;
 begin
   if v_uid is null then
     raise exception 'Not signed in' using errcode = '28000';
@@ -232,8 +235,6 @@ begin
   end if;
 
   -- --- sets -----------------------------------------------------
-  -- Only when a score is actually being written. Clearing a score clears the
-  -- sets with it, so a cleared match goes back to being an ordinary fixture.
   if p_sets_a is not null and p_sets_b is not null
      and coalesce(array_length(p_sets_a, 1), 0) > 0 then
 
@@ -258,17 +259,31 @@ begin
     -- disagree with the sets they came from.
     select coalesce(sum(v), 0) into v_score_a from unnest(p_sets_a) as s(v);
     select coalesce(sum(v), 0) into v_score_b from unnest(p_sets_b) as s(v);
+
+    -- Whether the MATCH is over, which is not the same as whether it has
+    -- scores. Best of three needs two sets: 1–0 and 1–1 are both matches in
+    -- progress, and marking either played would let the standings count a
+    -- half-finished game as a tie.
+    select
+      count(*) filter (where t.a > t.b),
+      count(*) filter (where t.b > t.a)
+      into v_wins_a, v_wins_b
+      from unnest(p_sets_a, p_sets_b) as t(a, b);
+
+    v_decided := greatest(v_wins_a, v_wins_b) >= 2 and v_wins_a <> v_wins_b;
   end if;
 
   if (v_score_a is not null and v_score_a < 0) or (v_score_b is not null and v_score_b < 0) then
     raise exception 'Scores cannot be negative' using errcode = '22023';
   end if;
 
-  v_played   := v_score_a is not null and v_score_b is not null;
+  v_played   := coalesce(v_decided, v_score_a is not null and v_score_b is not null);
   v_knockout := coalesce(v_game.stage, 'rr') <> 'rr';
 
-  -- Clearing a score clears the sets too.
-  if not v_played then
+  -- Clearing a score clears the sets too. `v_decided is null` means no sets were
+  -- passed at all — an ordinary single game — so this must not fire for a set
+  -- match that is merely undecided, which still has sets worth keeping.
+  if v_score_a is null or v_score_b is null then
     v_sets_a := '{}';
     v_sets_b := '{}';
   end if;
@@ -278,7 +293,10 @@ begin
   v_team_b := v_game.team_b;
 
   if v_knockout then
-    if not v_played then
+    -- An undecided match keeps its line-up: the players are on court, the
+    -- result just is not in yet. Only clearing the score releases the slot back
+    -- to being derived from the standings.
+    if v_score_a is null or v_score_b is null then
       v_team_a := '{}';
       v_team_b := '{}';
     elsif p_team_a is not null and p_team_b is not null then

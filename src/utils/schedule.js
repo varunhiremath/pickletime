@@ -11,7 +11,9 @@
 // Everything here is pure: ids in, games out. No DB, no DOM, no clock.
 
 import { mulberry32, shuffle } from './rng.js';
-import { STAGE, BRACKET_SIZE, SHAPES, buildBracketGames } from './bracket.js';
+import {
+  STAGE, BRACKET_SIZE, SHAPES, buildBracketGames, roundRobinGames,
+} from './bracket.js';
 
 export const FORMATS = {
   SINGLES: 'singles',
@@ -355,6 +357,39 @@ export function generateSchedule({
   // Courts are assigned across the whole schedule, so the two semifinals share
   // the courts the round robin was using rather than queueing behind each other.
   return assignCourts(games, courts);
+}
+
+/**
+ * The knockout fixtures a session should have, for a given finish.
+ *
+ * Separate from generateSchedule because changing the finish must NOT touch the
+ * round robin — by the time anybody wants to, half of it has been played. This
+ * takes the round robin as it stands and returns the fixtures that belong after
+ * it, numbered and courted as though they had been generated with it.
+ *
+ * Returns an empty array for no finish, which is how playoffs get turned off.
+ *
+ * @param games   the session's games, played or not
+ * @param shape   a SHAPES value, or null/false for no finish
+ * @param courts  how many run at once
+ */
+export function rebuildPlayoffs({ games = [], shape = null, courts = 1 } = {}) {
+  if (!shape) return [];
+
+  const rr = roundRobinGames(games).slice().sort((a, b) => a.ordinal - b.ordinal);
+  if (rr.length === 0) return [];
+
+  const last = rr[rr.length - 1];
+  const built = buildBracketGames({
+    lastOrdinal: last.ordinal,
+    lastRound: last.round,
+    shape,
+  });
+
+  // Courts are assigned across the whole schedule, exactly as generateSchedule
+  // does it, then only the new tail is returned — otherwise the two semifinals
+  // would both land on court 1 and queue behind each other.
+  return assignCourts([...rr, ...built], courts).slice(rr.length);
 }
 
 /**

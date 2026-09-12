@@ -1,8 +1,8 @@
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
-import { generateSchedule } from '../utils/schedule.js';
-import { roundRobinGames, isKnockout, shapeOf } from '../utils/bracket.js';
-import { aggregate } from '../utils/sets.js';
+import { generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs } from '../utils/schedule.js';
+import { roundRobinGames, knockoutGames, isKnockout, shapeOf } from '../utils/bracket.js';
+import { aggregate, isDecided } from '../utils/sets.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode } from '../utils/inviteCode.js';
@@ -305,6 +305,55 @@ export function createLocalBackend() {
      * Refuses once anything has been scored — silently discarding results would
      * be worse than making the admin clear them deliberately.
      */
+    /**
+     * Swap the finish without touching the round robin.
+     *
+     * Its own method rather than a regenerateSchedule option because by the time
+     * anybody wants to change the finish, half the round robin has been played —
+     * and regenerateSchedule refuses to run at all once anything has a score.
+     * The point of this feature is precisely to be usable then.
+     *
+     * @param shape a SHAPES value, or null to drop the playoffs entirely
+     */
+    async setPlayoffShape(sessionId, shape) {
+      const existing = await this.getSession(sessionId);
+      if (!existing) throw new Error('Session not found.');
+      const { session, games } = existing;
+
+      if (knockoutGames(games).some((g) => g.played)) {
+        throw new Error('A playoff game already has a score. Clear it first.');
+      }
+
+      const resolved = shape ? resolvePlayoffShape(session.format, shape) : null;
+      if (shape && !resolved) {
+        throw new Error('That finish does not apply to this format.');
+      }
+      if (resolved && !canRunPlayoffs({ format: session.format, playerCount: session.playerIds.length })) {
+        throw new Error('There are not enough players for a finish.');
+      }
+
+      const built = rebuildPlayoffs({ games, shape: resolved, courts: session.courts });
+      const fresh = built.map((g) => ({
+        ...g, id: newId(), sessionId, scoredBy: null, updatedAt: now(),
+      }));
+      const rrCount = roundRobinGames(games).length;
+
+      await db.transaction('rw', db.sessions, db.games, db.scoreEvents, async () => {
+        for (const g of knockoutGames(games)) {
+          await db.scoreEvents.where('gameId').equals(g.id).delete();
+          await db.games.delete(g.id);
+        }
+        if (fresh.length > 0) await db.games.bulkPut(fresh);
+        await db.sessions.update(sessionId, {
+          playoffs: fresh.length > 0,
+          numGames: rrCount + fresh.length,
+        });
+      });
+
+      emit({ type: 'games' });
+      return this.getSession(sessionId);
+    },
+
     async regenerateSchedule(sessionId, { seed, teams } = {}) {
       const existing = await this.getSession(sessionId);
       if (!existing) throw new Error('Session not found.');
@@ -394,28 +443,38 @@ export function createLocalBackend() {
       let b = scoreB;
       let setsA = [];
       let setsB = [];
+      // A set match is only PLAYED once somebody has won it. One set in is a
+      // real thing to record between games, but it is not a result — counting
+      // it would put a half-finished match in the standings as a tie and let
+      // the bracket advance from it. Mirrors submit_score(); see functions.sql.
+      let decided = null;
       if (opts?.setsA?.length && opts?.setsB?.length) {
         setsA = opts.setsA;
         setsB = opts.setsB;
         const total = aggregate({ setsA, setsB });
         a = total.a;
         b = total.b;
+        decided = isDecided({ setsA, setsB });
       }
 
-      const played = a != null && b != null;
+      const played = decided ?? (a != null && b != null);
       // Clearing a score clears the sets with it, so the match goes back to
-      // being an ordinary fixture rather than an empty best-of-three.
-      if (!played) {
+      // being an ordinary fixture rather than an empty best-of-three. Keyed on
+      // "there is no score", not on `played`: a best-of-three that is one set
+      // in is unplayed but still has a set worth keeping.
+      const cleared = a == null || b == null;
+      if (cleared) {
         setsA = [];
         setsB = [];
       }
 
       // Round-robin line-ups come from the generated schedule and are never
       // rewritten by a score. Clearing a knockout score un-decides the slot, so
-      // it goes back to being derived from the standings.
+      // it goes back to being derived from the standings — but an undecided
+      // best-of-three keeps its line-up, because those players are on court.
       let { teamA, teamB } = game;
       if (isKnockout(game)) {
-        if (!played) {
+        if (cleared) {
           teamA = [];
           teamB = [];
         } else if (teams?.teamA?.length && teams?.teamB?.length) {

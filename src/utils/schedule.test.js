@@ -11,6 +11,7 @@ import {
   circleMethod,
   isTeamFormat,
   playoffShape,
+  rebuildPlayoffs,
 } from './schedule.js';
 import { STAGE, SLOT, SHAPES, isRoundRobin, knockoutGames } from './bracket.js';
 
@@ -493,5 +494,47 @@ describe('gamesPerPlayer', () => {
 
   it('is zero when there is nobody to play', () => {
     expect(gamesPerPlayer({ format: FORMATS.SINGLES, playerCount: 1 })).toBe(0);
+  });
+});
+
+describe('rebuildPlayoffs', () => {
+  const rr = (ordinal, round) => ({
+    ordinal, round, court: 1, stage: 'rr', slot: null,
+    teamA: ['a'], teamB: ['b'], byes: [], scoreA: 11, scoreB: 9, played: true,
+  });
+  const table = [rr(1, 1), rr(2, 1), rr(3, 2), rr(4, 2), rr(5, 3), rr(6, 3)];
+
+  it('numbers the new fixtures on from the round robin', () => {
+    const out = rebuildPlayoffs({ games: table, shape: SHAPES.KNOCKOUT, courts: 2 });
+    expect(out.map((g) => g.slot)).toEqual(['sf1', 'sf2', 'bronze', 'final']);
+    expect(out.map((g) => g.ordinal)).toEqual([7, 8, 9, 10]);
+    expect(out.map((g) => g.round)).toEqual([4, 4, 5, 5]);
+  });
+
+  it('spreads a round across the courts rather than queueing it', () => {
+    const out = rebuildPlayoffs({ games: table, shape: SHAPES.KNOCKOUT, courts: 2 });
+    // The two semifinals are concurrent, so they must not share a court.
+    expect(out[0].court).not.toBe(out[1].court);
+  });
+
+  it('builds the Page ladder when asked for it', () => {
+    const out = rebuildPlayoffs({ games: table, shape: SHAPES.PAGE, courts: 1 });
+    expect(out.map((g) => g.slot)).toEqual(['qf', 'ef', 'pf', 'bronze', 'final']);
+  });
+
+  it('ignores knockout games already there, and never touches the round robin', () => {
+    const withKo = [...table, { ordinal: 7, round: 4, stage: 'sf', slot: 'sf1', teamA: [], teamB: [], byes: [] }];
+    const out = rebuildPlayoffs({ games: withKo, shape: SHAPES.PAGE, courts: 1 });
+    // Numbered from the last ROUND-ROBIN game, not the last game.
+    expect(out[0].ordinal).toBe(7);
+    expect(out.every((g) => g.stage !== 'rr')).toBe(true);
+  });
+
+  it('returns nothing for no finish, which is how playoffs get turned off', () => {
+    expect(rebuildPlayoffs({ games: table, shape: null, courts: 1 })).toEqual([]);
+  });
+
+  it('returns nothing when there is no round robin to follow', () => {
+    expect(rebuildPlayoffs({ games: [], shape: SHAPES.KNOCKOUT })).toEqual([]);
   });
 });

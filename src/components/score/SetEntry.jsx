@@ -1,6 +1,6 @@
 import { Check } from 'lucide-react';
 import ScoreInput from './ScoreInput.jsx';
-import { BEST_OF, SETS_TO_WIN, normaliseSets } from '../../utils/sets.js';
+import { BEST_OF, SETS_TO_WIN, normaliseSets, setsStatus } from '../../utils/sets.js';
 
 /**
  * Entering a match played as sets.
@@ -16,6 +16,7 @@ import { BEST_OF, SETS_TO_WIN, normaliseSets } from '../../utils/sets.js';
  */
 export default function SetEntry({ draft, onChange, disabled = false, label = 'match' }) {
   const check = normaliseSets(draft);
+  const status = setsStatus(check);
   // Only nag once there is something to nag about. An untouched match should
   // not open with an error under it.
   const started = draft.some((r) => r.a !== '' || r.b !== '');
@@ -70,13 +71,11 @@ export default function SetEntry({ draft, onChange, disabled = false, label = 'm
 
       <p
         className="font-sans text-xs"
-        style={{ color: check.ok ? 'var(--text-lo)' : 'var(--clay)' }}
+        style={{ color: status.tone === 'error' ? 'var(--clay)' : 'var(--text-lo)' }}
       >
-        {check.ok
-          ? 'Match complete.'
-          : started
-            ? check.error
-            : `Best of ${BEST_OF} — first to ${SETS_TO_WIN} sets. Leave the third blank if it went 2–0.`}
+        {started
+          ? status.message
+          : `Best of ${BEST_OF} — first to ${SETS_TO_WIN} sets. Save as you go; leave the third blank if it went 2–0.`}
       </p>
     </div>
   );

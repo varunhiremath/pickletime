@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   BEST_OF, SETS_TO_WIN, isMultiSet, setPairs, setsWon, aggregate,
-  winnerOf, isDecided, displayScore, setsLine, normaliseSets, draftFrom, emptyDraft,
+  winnerOf, isDecided, displayScore, setsLine, normaliseSets, setsStatus, draftFrom, emptyDraft,
 } from './sets.js';
 
 const single = (a, b) => ({ scoreA: a, scoreB: b, played: a != null && b != null });
@@ -136,14 +136,14 @@ describe('normaliseSets', () => {
 
   it('keeps a decided three-setter', () => {
     expect(normaliseSets(draft(['11', '9'], ['5', '11'], ['11', '9'])))
-      .toEqual({ ok: true, setsA: [11, 5, 11], setsB: [9, 11, 9] });
+      .toEqual({ ok: true, decided: true, setsA: [11, 5, 11], setsB: [9, 11, 9] });
   });
 
   it('drops a trailing blank set on a straight-sets win', () => {
     // Won 2–0, so there is no third set. Storing an empty one would make a
     // finished match look unfinished.
     expect(normaliseSets(draft(['11', '9'], ['11', '7'], ['', ''])))
-      .toEqual({ ok: true, setsA: [11, 11], setsB: [9, 7] });
+      .toEqual({ ok: true, decided: true, setsA: [11, 11], setsB: [9, 7] });
   });
 
   it('refuses a gap in the middle rather than closing it up', () => {
@@ -156,10 +156,16 @@ describe('normaliseSets', () => {
     expect(normaliseSets(draft(['11', '9'], ['11', ''])).ok).toBe(false);
   });
 
-  it('refuses a match nobody has won yet', () => {
+  it('saves a match in progress, but does not call it decided', () => {
+    // One set all. Worth recording between games; not a result, so the
+    // standings and the bracket must not see it as one.
     const r = normaliseSets(draft(['11', '9'], ['5', '11']));
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/2 sets/);
+    expect(r).toEqual({ ok: true, decided: false, setsA: [11, 5], setsB: [9, 11] });
+  });
+
+  it('saves a single set on its own', () => {
+    expect(normaliseSets(draft(['11', '9'])))
+      .toEqual({ ok: true, decided: false, setsA: [11], setsB: [9] });
   });
 
   it('refuses an empty draft', () => {
@@ -186,5 +192,31 @@ describe('draftFrom', () => {
 
   it('is empty for a single game', () => {
     expect(draftFrom(single(11, 9))).toEqual(emptyDraft());
+  });
+});
+
+describe('setsStatus', () => {
+  const draft = (...rows) => rows.map(([a, b]) => ({ a, b }));
+
+  it('reports a finished match', () => {
+    const s = setsStatus(normaliseSets(draft(['11', '9'], ['11', '7'])));
+    expect(s).toEqual({ tone: 'done', message: 'Match complete.' });
+  });
+
+  it('reports how far a match in progress has got', () => {
+    const s = setsStatus(normaliseSets(draft(['11', '9'])));
+    expect(s.tone).toBe('progress');
+    expect(s.message).toBe('1 set in, 1–0. Save now and finish it later.');
+  });
+
+  it('pluralises the set count', () => {
+    expect(setsStatus(normaliseSets(draft(['11', '9'], ['5', '11']))).message)
+      .toBe('2 sets in, 1–1. Save now and finish it later.');
+  });
+
+  it('passes a validation error through as an error', () => {
+    const s = setsStatus(normaliseSets(draft(['11', ''])));
+    expect(s.tone).toBe('error');
+    expect(s.message).toMatch(/Set 1/);
   });
 });
