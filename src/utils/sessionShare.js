@@ -9,6 +9,7 @@
 import { resolveBracket } from './bracket.js';
 import { bracketTreeLines } from './bracketTree.js';
 import { sessionEntrants } from './entrants.js';
+import { nameCarriesDate, nameCarriesTime } from './sessionName.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,6 +62,25 @@ export const FORMAT_LABEL = {
 export const formatLabel = (format) => FORMAT_LABEL[format] ?? format ?? '';
 
 /**
+ * When the session is, for the line that sits under its name.
+ *
+ * The date is dropped when the name already says it. Sessions are named
+ * "Sept 13 · Sunday Doubles" by default now, and printing "Sun 13 Sept"
+ * underneath that reads as a stutter — so this asks the name rather than
+ * assuming, and a session called "Doubles" still gets its date.
+ */
+export function sessionWhen(session) {
+  if (!session) return '';
+  const date = nameCarriesDate(session.name, session.date)
+    ? null
+    : formatSessionDate(session.date);
+  const time = nameCarriesTime(session.name, session.startTime)
+    ? null
+    : formatSessionTime(session.startTime);
+  return [date, time].filter(Boolean).join(', ');
+}
+
+/**
  * The caption that travels with a shared picture.
  *
  * Deliberately two lines. The card already shows the teams, the scores and the
@@ -76,9 +96,7 @@ export const formatLabel = (format) => FORMAT_LABEL[format] ?? format ?? '';
 function caption({ session, url, headline, icon, linkLabel }) {
   if (!session) return '';
 
-  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
-    .filter(Boolean)
-    .join(', ');
+  const when = sessionWhen(session);
 
   const lines = [`${icon} ${session.name}${when ? ` — ${when}` : ''}`];
   if (headline) lines.push(headline);
@@ -127,9 +145,7 @@ export function buildSessionCaption({ session, url } = {}) {
 export function announcement({ session, games = [] } = {}) {
   if (!session) return null;
 
-  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
-    .filter(Boolean)
-    .join(', ');
+  const when = sessionWhen(session);
 
   const details = [formatLabel(session.format)];
   if (session.format !== 'singles' && session.numGames) {
@@ -235,9 +251,7 @@ export function buildResultsShare({ session, games = [], members = [], url } = {
   const nameOf = (ids) =>
     (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & ');
 
-  const when = [formatSessionDate(session.date), formatSessionTime(session.startTime)]
-    .filter(Boolean)
-    .join(', ');
+  const when = sessionWhen(session);
 
   const lines = [`🏆 ${session.name}${when ? ` — ${when}` : ''}`];
 

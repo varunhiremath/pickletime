@@ -6,6 +6,7 @@ import {
   FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape,
   playoffShapesFor, resolvePlayoffShape,
 } from '../../utils/schedule.js';
+import { defaultSessionName } from '../../utils/sessionName.js';
 import { BRACKET_SIZE, SHAPES, slotsForShape } from '../../utils/bracket.js';
 
 import ShapeChoice, { SHAPE_COPY } from './ShapeChoice.jsx';
@@ -35,6 +36,13 @@ const FORMAT_OPTIONS = [
     min: 4,
   },
 ];
+
+/** Today where the phone is, as "2026-09-12". See the `date` state below. */
+function todayIso() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 function Stepper({ label, value, onChange, min = 1, max = 50, hint }) {
   return (
@@ -79,12 +87,19 @@ function Stepper({ label, value, onChange, min = 1, max = 50, hint }) {
   );
 }
 
-export default function NewSessionModal({ open, onClose, members, onCreate }) {
+export default function NewSessionModal({ open, onClose, members, sessions = [], onCreate }) {
   const settings = useSettingsStore();
+  // Empty means "use the automatic name". The field is not left blank though —
+  // it shows the automatic name so you can see what you are getting and edit it
+  // if you want something else.
   const [name, setName] = useState('');
   // Defaults to today, but a session is usually scheduled ahead — you set up
   // Sunday's tournament on Thursday — so both are editable.
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  //
+  // Local parts, not toISOString(): that is UTC, so anybody west of Greenwich
+  // setting up an evening session would be handed tomorrow's date. Invisible
+  // while the field said "Saturday morning"; obvious now the name says the day.
+  const [date, setDate] = useState(todayIso);
   const [startTime, setStartTime] = useState('');
   const [format, setFormat] = useState(settings.lastFormat);
   const [picked, setPicked] = useState(() => new Set(members.map((m) => m.id)));
@@ -106,6 +121,29 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
   useEffect(() => {
     if (open) setPicked(new Set(members.map((m) => m.id)));
   }, [open, members]);
+
+  // Forget a typed name when the sheet reopens: last week's "grudge match"
+  // should not silently become this week's session name.
+  useEffect(() => {
+    if (open) setName('');
+  }, [open]);
+
+  /**
+   * What the session is called if nobody types anything.
+   *
+   * Follows the date and format as you change them — the whole point is that
+   * you never have to think about it — but a name you have typed yourself wins
+   * and is never overwritten.
+   */
+  const autoName = useMemo(
+    () => defaultSessionName({
+      date,
+      format,
+      startTime,
+      taken: sessions.map((s) => s.name),
+    }),
+    [date, format, startTime, sessions]
+  );
 
   const playerIds = useMemo(
     () => members.filter((m) => picked.has(m.id)).map((m) => m.id),
@@ -180,7 +218,7 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
         lastPointsTo: pointsTo,
       });
       await onCreate({
-        name: name.trim() || 'Session',
+        name: name.trim() || autoName,
         date,
         startTime,
         format,
@@ -227,9 +265,9 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
             Name
           </label>
           <input
-            value={name}
+            value={name || autoName}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Saturday morning"
+            placeholder={autoName}
             className="w-full font-sans text-base outline-none"
             style={{
               padding: '11px 13px',

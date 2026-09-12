@@ -43,7 +43,8 @@ when someone deep-links to Courtside.
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `PAGE_SLOTS`, `FINAL_ONLY_SLOTS`, `slotsForShape`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
-| `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
+| `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `sessionWhen`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
+| `sessionName.js` | `parseIsoDate`, `playLabel`, `formatClockTime`, `defaultSessionName`, `nameCarriesDate`, `nameCarriesTime` — what a session is called when nobody types a name. |
 | `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `isDecided`, `displayScore`, `setsLine`, `normaliseSets`, `setsStatus` — matches played as sets. `normaliseSets` returns `{ ok, decided }`: **`ok` means worth saving, `decided` means somebody has won two sets**, and only `decided` makes a match played. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -312,6 +313,32 @@ this job: it refuses to run at all once anything is scored, and by the time anyb
 wants a different finish, half the round robin has been played. The UI is
 `club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
 Playoffs heading on Matches, which is where people look for it.
+
+## What a session is called
+
+A session names itself: **`Sept 13 · Sunday Doubles`** — the date, then the day and
+what was played. "Session", "Session (2)" and "Saturday morning" told you nothing in a
+History list six weeks later. Both kinds of doubles are just "Doubles" in a name; the
+exact format is on the line underneath and in the pictures, and spelling it out
+truncates on a phone.
+
+It is a **default, not a rule**. The field opens pre-filled and follows the date and
+format as you change them, but the moment you type something it is yours and is never
+overwritten. Two sessions on one day are common, so the second carries its start time
+(`… · 6:00 pm`), falling back to a counter when there is no time to tell them apart.
+
+**A name that says the date means nothing else should.** `sessionWhen(session)` is the
+one place that decides what goes on the line under the name — and it drops the date, or
+the time, when `nameCarriesDate`/`nameCarriesTime` find it in the name already. It asks
+the name rather than assuming it was generated, so a hand-typed "Sept 13 grudge match"
+de-duplicates too and a session called "Doubles" still gets its date. Every caption,
+share, picture subtitle, the club card and the History row read from it, so there is no
+second place to keep in step.
+
+> The new-session sheet defaults its date from **local** parts, not `toISOString()` —
+> that is UTC, so anybody west of Greenwich setting up an evening session was handed
+> tomorrow's date. Invisible while the field said "Saturday morning"; obvious the moment
+> the name says the day.
 
 ## Sharing
 
