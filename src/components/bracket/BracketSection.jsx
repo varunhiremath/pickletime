@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { Trophy, Lock, AlertTriangle } from 'lucide-react';
+import { Trophy, Lock, AlertTriangle, Settings2 } from 'lucide-react';
 import MatchCard from '../scoreboard/MatchCard.jsx';
 import Podium from './Podium.jsx';
 import { Faces } from '../scoreboard/PlayerChip.jsx';
@@ -27,7 +27,7 @@ function Heading({ children }) {
  * obvious: locked until the round robin finishes, then who qualified and why,
  * then the fixtures, then the result.
  */
-export default function BracketSection({ bracket, members, session, onSubmit }) {
+export default function BracketSection({ bracket, members, session, onSubmit, onChangeShape }) {
   if (!bracket.enabled) return null;
 
   const { rr, matches, qualifiers, standings, tiedForLastSpot } = bracket;
@@ -81,6 +81,18 @@ export default function BracketSection({ bracket, members, session, onSubmit }) 
         <h2 className="font-display text-base font-extrabold" style={{ color: 'var(--text-hi)' }}>
           {oneGame ? 'The final' : 'Playoffs'}
         </h2>
+        {/* Next to the heading because that is where people look for it: the
+            question "can we make this a Page instead?" comes up while staring
+            at the bracket, not on the club screen. */}
+        {onChangeShape && (
+          <button
+            onClick={onChangeShape}
+            className="ml-auto flex items-center gap-1 font-sans text-[13px] font-semibold"
+            style={{ color: 'var(--optic-ink)' }}
+          >
+            <Settings2 size={14} /> Change
+          </button>
+        )}
       </div>
 
       {bracket.complete && (

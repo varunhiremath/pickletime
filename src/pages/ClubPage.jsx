@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy } from 'lucide-react';
 import {
   buildSessionShare, buildSessionCaption, formatSessionDate, formatSessionTime, formatLabel,
 } from '../utils/sessionShare.js';
@@ -13,9 +13,10 @@ import { Avatar } from '../components/scoreboard/PlayerChip.jsx';
 import NewSessionModal from '../components/club/NewSessionModal.jsx';
 import EditTeamsModal from '../components/club/EditTeamsModal.jsx';
 import InviteRow from '../components/club/InviteRow.jsx';
+import PlayoffModal from '../components/club/PlayoffModal.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
-import { isTeamFormat } from '../utils/schedule.js';
+import { isTeamFormat, canRunPlayoffs } from '../utils/schedule.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
 /** "Sunday Doubles" → "sunday-doubles", for a filename people can find again. */
@@ -26,10 +27,12 @@ export default function ClubPage() {
   const { club, members, sessions, session, games, identity, remote, canPublish } =
     useSessionStore();
   const refresh = useSessionStore((s) => s.refresh);
+  const followActive = useSessionStore((s) => s.followActive);
   const isAdmin = useSessionStore((s) => s.isAdmin());
   const inviteFor = useSessionStore((s) => s.inviteFor);
   const [sessionModal, setSessionModal] = useState(false);
   const [teamsModal, setTeamsModal] = useState(false);
+  const [playoffModal, setPlayoffModal] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const appUrl = `${window.location.origin}${import.meta.env.BASE_URL}`;
   // The last admin cannot hand the job back — there would be nobody left who
@@ -238,9 +241,29 @@ export default function ClubPage() {
     }
   };
 
+  /**
+   * Swap the finish on a running session.
+   *
+   * The playoff fixtures are rebuilt from scratch; the round robin and its
+   * scores are never touched. The backend refuses once a playoff game has been
+   * scored, so a failure here is worth showing rather than swallowing.
+   */
+  const savePlayoffShape = async (shape) => {
+    try {
+      await getBackend().setPlayoffShape(session.id, shape);
+      await refresh();
+      toast(shape ? 'Playoff format changed.' : 'Playoffs removed.', { type: 'success' });
+    } catch (err) {
+      toast(err.message ?? 'Could not change the finish.', { type: 'error' });
+    }
+  };
+
   const createSession = async (config) => {
     await getBackend().createSession(config);
-    await refresh();
+    // followActive, not refresh: if a past session was open from History the
+    // app used to stay on it, leaving yesterday's schedule up after you had
+    // just built today's.
+    await followActive();
     toast('Schedule generated.', { type: 'success' });
   };
 
@@ -406,6 +429,17 @@ export default function ClubPage() {
             </Button>
           )}
 
+          {/* The finish is decided on the court as often as in the setup sheet
+              — "let's make it a Page" comes up once people see the table. */}
+          {session &&
+            isAdmin &&
+            canRunPlayoffs({ format: session.format, playerCount: session.playerIds.length }) && (
+              <Button variant="secondary" full onClick={() => setPlayoffModal(true)}>
+                <Trophy size={16} />
+                Change the finish
+              </Button>
+            )}
+
           {isAdmin && (
             <Button variant="primary" full onClick={() => setSessionModal(true)} disabled={members.length < 2}>
               <Play size={16} />
@@ -529,6 +563,7 @@ export default function ClubPage() {
                       member={m}
                       invite={inviteFor(m.id)}
                       clubName={club.name}
+                      appUrl={appUrl}
                       onMint={mintInvite}
                       onRevoke={revokeInvite}
                     />
@@ -603,6 +638,16 @@ export default function ClubPage() {
           games={games}
           members={members}
           onSave={saveTeams}
+        />
+      )}
+
+      {session && (
+        <PlayoffModal
+          open={playoffModal}
+          onClose={() => setPlayoffModal(false)}
+          session={session}
+          games={games}
+          onSave={savePlayoffShape}
         />
       )}
     </>

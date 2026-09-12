@@ -84,7 +84,11 @@ export default function MatchCard({
   const live = sets
     ? setsWon({ setsA: setCheck.setsA ?? [], setsB: setCheck.setsB ?? [] })
     : { a: draft.a, b: draft.b };
-  const bothTyped = live.a != null && live.b != null && (sets ? live.a + live.b > 0 : true);
+  // A lead is not a win. One set up shows no winner's rail, the same way a
+  // half-finished match is not counted in the table.
+  const bothTyped = sets
+    ? Boolean(setCheck.decided)
+    : live.a != null && live.b != null;
   const aLeads = editable && bothTyped ? live.a > live.b : aWon;
   const bLeads = editable && bothTyped ? live.b > live.a : bWon;
 
@@ -138,7 +142,14 @@ export default function MatchCard({
       <div className="flex items-center gap-2">
         <Chip tone={label ? 'gold' : 'neutral'}>{label ?? `Game ${game.ordinal}`}</Chip>
         {courts > 1 && <Chip tone="court">Court {game.court}</Chip>}
-        {!played && !locked && <Chip tone="neutral">Not played</Chip>}
+        {/* A set match with sets on it but no winner is neither played nor
+            untouched — saying "not played" over a 1–0 scoreline would read as
+            though the entry had been lost. */}
+        {!played && !locked && (
+          isMultiSet(game)
+            ? <Chip tone="court">In progress</Chip>
+            : <Chip tone="neutral">Not played</Chip>
+        )}
         {game.pending && (
           <Chip tone="court">
             <Clock size={10} /> Queued

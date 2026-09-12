@@ -1,8 +1,8 @@
 import { supabase, ensureSignedIn, currentUserId } from './supabaseClient.js';
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
-import { generateSchedule } from '../utils/schedule.js';
-import { roundRobinGames, shapeOf } from '../utils/bracket.js';
+import { generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs } from '../utils/schedule.js';
+import { roundRobinGames, knockoutGames, shapeOf } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode, normalizeInviteCode } from '../utils/inviteCode.js';
@@ -555,6 +555,63 @@ export function createSupabaseBackend() {
       unwrap(await supabase.from('games').insert(games.map(gameToRow)));
 
       emit({ type: 'sessions' });
+      return this.getSession(sessionId);
+    },
+
+    /**
+     * Swap the finish without touching the round robin.
+     *
+     * Its own method rather than a regenerateSchedule option because by the time
+     * anybody wants to change the finish, half the round robin has been played —
+     * and regenerateSchedule refuses to run once anything has a score. Being
+     * usable then is the whole point.
+     *
+     * @param shape a SHAPES value, or null to drop the playoffs entirely
+     */
+    async setPlayoffShape(sessionId, shape) {
+      const existing = await this.getSession(sessionId);
+      if (!existing) throw new Error('Session not found.');
+      const { session, games } = existing;
+
+      const ko = knockoutGames(games);
+      if (ko.some((g) => g.played)) {
+        throw new Error('A playoff game already has a score. Clear it first.');
+      }
+
+      const resolved = shape ? resolvePlayoffShape(session.format, shape) : null;
+      if (shape && !resolved) {
+        throw new Error('That finish does not apply to this format.');
+      }
+      if (resolved && !canRunPlayoffs({ format: session.format, playerCount: session.playerIds.length })) {
+        throw new Error('There are not enough players for a finish.');
+      }
+
+      const built = rebuildPlayoffs({ games, shape: resolved, courts: session.courts });
+      const fresh = built.map((g) => ({ ...g, id: newId(), sessionId, scoredBy: null }));
+      const rrCount = roundRobinGames(games).length;
+
+      if (ko.length > 0) {
+        unwrap(await supabase.from('games').delete().in('id', ko.map((g) => g.id)));
+      }
+      if (fresh.length > 0) {
+        unwrap(await supabase.from('games').insert(fresh.map(gameToRow)));
+      }
+      unwrap(
+        await supabase
+          .from('sessions')
+          .update({ playoffs: fresh.length > 0, num_games: rrCount + fresh.length })
+          .eq('id', sessionId)
+      );
+
+      // Drop the mirror's copies of the fixtures that no longer exist.
+      // The server cascades these; the mirror has to be told. Leaving the rows
+      // behind would strand score events pointing at fixtures that no longer
+      // exist.
+      for (const g of ko) {
+        await db.scoreEvents.where('gameId').equals(g.id).delete();
+        await db.games.delete(g.id);
+      }
+      emit({ type: 'games' });
       return this.getSession(sessionId);
     },
 

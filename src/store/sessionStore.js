@@ -16,6 +16,10 @@ const useSessionStore = create((set, get) => ({
   sessions: [],
   session: null,
   games: [],
+  // Set only when the user deliberately opened a past session from History.
+  // Distinguishing that from "this happened to be loaded" is what stops a newly
+  // created session being ignored — see refresh().
+  openedSessionId: null,
   identity: null,
   invites: [],
   remote: false,
@@ -50,10 +54,15 @@ const useSessionStore = create((set, get) => ({
 
     // Keep whichever session the user has explicitly opened from History,
     // instead of yanking them back to the live one on every change event.
-    const opened = get().session;
+    //
+    // Keyed on openedSessionId, not on whatever is currently loaded. Using the
+    // loaded session meant that creating a new one left the OLD schedule on
+    // screen: the old session was still in the list, so it looked exactly like
+    // a deliberate choice to view it.
+    const openedId = get().openedSessionId;
     const keepOpened =
-      opened && opened.id !== active?.session?.id && sessions.some((s) => s.id === opened.id);
-    const shown = keepOpened ? await backend.getSession(opened.id) : active;
+      openedId && openedId !== active?.session?.id && sessions.some((s) => s.id === openedId);
+    const shown = keepOpened ? await backend.getSession(openedId) : active;
 
     set({
       loaded: true,
@@ -66,6 +75,9 @@ const useSessionStore = create((set, get) => ({
       remote: backend.kind === 'supabase',
       session: shown?.session ?? null,
       games: shown?.games ?? [],
+      // A session that has been deleted, or has become the active one, stops
+      // being a deliberate choice.
+      openedSessionId: keepOpened ? openedId : null,
       connection: backend.getConnection(),
       pending,
     });
@@ -74,7 +86,20 @@ const useSessionStore = create((set, get) => ({
   /** Switch which session the app is showing (History → open a past session). */
   async openSession(sessionId) {
     const result = await getBackend().getSession(sessionId);
-    if (result) set({ session: result.session, games: result.games });
+    if (result) {
+      set({ session: result.session, games: result.games, openedSessionId: sessionId });
+    }
+  },
+
+  /**
+   * Stop pinning a past session and follow whichever one is live.
+   *
+   * Called after creating a session, so the app lands on the games you just
+   * made rather than leaving yesterday's schedule up.
+   */
+  async followActive() {
+    set({ openedSessionId: null });
+    await get().refresh();
   },
 
   /** Subscribe to backend changes. Returns an unsubscribe function. */

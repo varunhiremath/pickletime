@@ -118,7 +118,13 @@ export const setsLine = (game) =>
  * makes the draft invalid rather than being silently closed up, because there
  * is no honest way to guess which set the missing one was.
  *
- * @returns {{ ok: boolean, error?: string, setsA?: number[], setsB?: number[] }}
+ * `ok` means "worth saving", not "finished". A match with one set in is a real
+ * thing to record between games, so it saves — and comes back with
+ * `decided: false`, which is what keeps it out of the standings until somebody
+ * has actually won it. Requiring two sets before saving anything meant a group
+ * that plays a set, swaps courts, and comes back had nowhere to put the score.
+ *
+ * @returns {{ ok, decided, error?, setsA?, setsB? }}
  */
 export function normaliseSets(draft = []) {
   const rows = draft.map(({ a, b }) => ({
@@ -131,32 +137,44 @@ export function normaliseSets(draft = []) {
   while (end > 0 && rows[end - 1].a == null && rows[end - 1].b == null) end -= 1;
   const kept = rows.slice(0, end);
 
-  if (kept.length === 0) return { ok: false, error: 'Enter at least one set.' };
-  if (kept.length > BEST_OF) return { ok: false, error: `Best of ${BEST_OF} is ${BEST_OF} sets.` };
+  if (kept.length === 0) {
+    return { ok: false, decided: false, error: 'Enter at least one set.' };
+  }
+  if (kept.length > BEST_OF) {
+    return { ok: false, decided: false, error: `Best of ${BEST_OF} is ${BEST_OF} sets.` };
+  }
 
   for (let i = 0; i < kept.length; i++) {
     const { a, b } = kept[i];
     if (a == null || b == null) {
-      return { ok: false, error: `Set ${i + 1} needs a score on both sides.` };
+      return { ok: false, decided: false, error: `Set ${i + 1} needs a score on both sides.` };
     }
     if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0) {
-      return { ok: false, error: `Set ${i + 1} needs whole numbers.` };
+      return { ok: false, decided: false, error: `Set ${i + 1} needs whole numbers.` };
     }
   }
 
   const setsA = kept.map((r) => r.a);
   const setsB = kept.map((r) => r.b);
 
-  if (!isDecided({ setsA, setsB })) {
-    return {
-      ok: false,
-      error: `Nobody has won ${SETS_TO_WIN} sets yet.`,
-      setsA,
-      setsB,
-    };
-  }
+  return { ok: true, decided: isDecided({ setsA, setsB }), setsA, setsB };
+}
 
-  return { ok: true, setsA, setsB };
+/**
+ * What to say under a set draft: where the match is up to.
+ *
+ * Separate from validation because "one set in" is a perfectly good state to be
+ * in, and telling somebody off for it would be wrong.
+ */
+export function setsStatus(check) {
+  if (!check?.ok) return { tone: 'error', message: check?.error ?? '' };
+  if (check.decided) return { tone: 'done', message: 'Match complete.' };
+  const { a, b } = setsWon({ setsA: check.setsA, setsB: check.setsB });
+  const played = check.setsA.length;
+  return {
+    tone: 'progress',
+    message: `${played} set${played === 1 ? '' : 's'} in, ${a}–${b}. Save now and finish it later.`,
+  };
 }
 
 /** An empty draft for the entry UI: one row per possible set. */

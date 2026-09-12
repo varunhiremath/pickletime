@@ -5,6 +5,7 @@ import Button from '../components/ui/Button.jsx';
 import EmptyState from '../components/ui/EmptyState.jsx';
 import MatchCard from '../components/scoreboard/MatchCard.jsx';
 import BracketSection from '../components/bracket/BracketSection.jsx';
+import PlayoffModal from '../components/club/PlayoffModal.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
 import { toast } from '../store/uiStore.js';
@@ -21,7 +22,10 @@ const FILTERS = [
 export default function MatchesPage() {
   const { session, games, members, identity, recentlyChanged } = useSessionStore();
   const players = useSessionStore((s) => s.sessionPlayers());
+  const isAdmin = useSessionStore((s) => s.isAdmin());
+  const refresh = useSessionStore((s) => s.refresh);
   const [filter, setFilter] = useState('all');
+  const [playoffModal, setPlayoffModal] = useState(false);
   const haptic = useHaptics();
 
   // Entrants, not players: in a fixed-pairs session the thing that wins a game
@@ -74,6 +78,18 @@ export default function MatchesPage() {
     } catch (err) {
       playError();
       toast(err.message ?? 'Could not save that score.', { type: 'error' });
+    }
+  };
+
+  /** Swap the finish without leaving the bracket. See ClubPage for the twin. */
+  const savePlayoffShape = async (shape) => {
+    try {
+      await getBackend().setPlayoffShape(session.id, shape);
+      await refresh();
+      toast(shape ? 'Playoff format changed.' : 'Playoffs removed.', { type: 'success' });
+    } catch (err) {
+      playError();
+      toast(err.message ?? 'Could not change the finish.', { type: 'error' });
     }
   };
 
@@ -167,8 +183,17 @@ export default function MatchesPage() {
           members={members}
           session={session}
           onSubmit={submit}
+          onChangeShape={isAdmin ? () => setPlayoffModal(true) : undefined}
         />
       </div>
+
+      <PlayoffModal
+        open={playoffModal}
+        onClose={() => setPlayoffModal(false)}
+        session={session}
+        games={games}
+        onSave={savePlayoffShape}
+      />
     </>
   );
 }

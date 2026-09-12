@@ -31,6 +31,9 @@
 //     mintInvite(memberId)             -> { code, invite }   (code shown once)
 //     revokeInvite(memberId)
 //     createSession(config)            -> { session, games }
+//     setPlayoffShape(sessionId, shape)       -> { session, games }
+//       Swap the finish (a SHAPES value, or null for none) without touching the
+//       round robin. Refuses once a playoff game has a score.
 //     regenerateSchedule(sessionId, { seed, teams }) -> { session, games }
 //       `teams` is fixed-pairs only: pass partnerships to set them explicitly,
 //       omit to draw them at random. See utils/schedule.js.

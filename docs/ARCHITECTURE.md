@@ -38,13 +38,13 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `playoffShapesFor`, `resolvePlayoffShape`, `canRunPlayoffs`. |
+| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `rebuildPlayoffs`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `playoffShapesFor`, `resolvePlayoffShape`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `PAGE_SLOTS`, `FINAL_ONLY_SLOTS`, `slotsForShape`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
 | `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
-| `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `displayScore`, `setsLine`, `normaliseSets` — matches played as sets. |
+| `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `isDecided`, `displayScore`, `setsLine`, `normaliseSets`, `setsStatus` — matches played as sets. `normaliseSets` returns `{ ok, decided }`: **`ok` means worth saving, `decided` means somebody has won two sets**, and only `decided` makes a match played. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
 | `outboxMerge.js` | `collapseOutbox`, `detectConflict`, `planFlush`, `applyPending`, `mergeRemote`, `describeConflict`. |
@@ -158,9 +158,11 @@ Migrations are append-only `db.version(n)` blocks. Never edit a shipped version.
 ### Stores (`src/store/`)
 
 - `sessionStore.js` — the live view: `club`, `members`, `sessions`, `session`, `games`,
-  `identity`, `connection`, `pending`, `recentlyChanged`. One store rather than a hook
-  per table, because every screen needs an overlapping slice and one refresh keeps them
-  mutually consistent.
+  `identity`, `connection`, `pending`, `recentlyChanged`, `openedSessionId`. One store
+  rather than a hook per table, because every screen needs an overlapping slice and one
+  refresh keeps them mutually consistent. `openSession(id)` pins a past session from
+  History across refreshes; `followActive()` unpins it and jumps back to the live one —
+  which is what creating a session does, so a new schedule is what you land on.
 - `settingsStore.js` — persisted to `localStorage` under `pickletime_prefs`.
 - `uiStore.js` — toasts and promise-based `confirm`/`prompt`. The app never calls
   `window.confirm`/`prompt`/`alert`.
@@ -301,6 +303,16 @@ each deciding for itself. Adding the Page system needed no new branch in any of 
 The Page rounds reuse `stage = 'sf'`, so **adding the shape needed no database change** —
 `stage` is a coarse round-robin/knockout marker and `slot` is what identifies a fixture.
 
+**The finish can be changed after the round robin has started.** `setPlayoffShape()`
+(both backends) tears down the playoff fixtures and rebuilds them from
+`schedule.rebuildPlayoffs()`, which re-derives the bracket off the existing round-robin
+games and re-runs court assignment — the round robin and every score in it are never
+touched. It refuses once a playoff game has a score. `regenerateSchedule()` cannot do
+this job: it refuses to run at all once anything is scored, and by the time anybody
+wants a different finish, half the round robin has been played. The UI is
+`club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
+Playoffs heading on Matches, which is where people look for it.
+
 ## Sharing
 
 There is no push notification — a static site cannot send one — so the group chat is
@@ -360,8 +372,15 @@ against and difference keep counting what they always counted.
 
 A best-of-three needs **two** sets, not a lead: one set played is 1–0 and decides
 nothing, and neither does 1–1. Both are matches in progress, and calling either a
-win would put the wrong side into a final — so `Save` stays disabled until
-somebody has two.
+win would put the wrong side into a final.
+
+That is a statement about `played`, not about saving. **Each set saves on its own**
+— people enter a set between games, not the whole match at the end — and the match
+stays unplayed, out of the standings and unable to feed a bracket until somebody has
+two. `normaliseSets` splits the two questions (`ok` = worth saving, `decided` =
+somebody won it) and both backends store sets whenever there is a score, clearing
+them only when the score itself is cleared. The match card says "In progress" over a
+1–0 rather than "Not played".
 
 The totals are derived from the sets by `submit_score()` and by the local
 backend, never taken from the caller, so the two can never disagree.
@@ -442,6 +461,9 @@ manual.
 | `score/ScoreInput.jsx` | Typed score entry — numeric keypad, select-on-focus, empty means unscored (distinct from 0). |
 | `bracket/BracketSection.jsx` | Seeds, semifinals, third-place game, final; locked with a countdown until the round robin ends. |
 | `bracket/Podium.jsx` | Champion / runner-up / third. The one deliberately loud surface in the app. |
+| `club/PlayoffModal.jsx` | Change the finish mid-session. Refuses once a playoff game is scored. |
+| `club/ShapeChoice.jsx` | `SHAPE_COPY` plus the selectable card. Shared by the new-session sheet and the change-the-finish sheet so the two describe a shape identically. |
+| `club/InviteRow.jsx` | The three invite states. **Joined is not the end of it** — somebody who never installed the app loses it when the chat scrolls, so a joined row still offers "Send the link" (the app address plus how to keep it on the home screen). |
 | `ui/Modal.jsx` | Portals to `document.body` — an ancestor `transform` would otherwise trap a fixed overlay. |
 | `ui/UiHost.jsx` | Renders `uiStore` toasts/dialogs. Mounted once in `RootBoot`. |
 

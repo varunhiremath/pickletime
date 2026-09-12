@@ -8,29 +8,7 @@ import {
 } from '../../utils/schedule.js';
 import { BRACKET_SIZE, SHAPES, slotsForShape } from '../../utils/bracket.js';
 
-/**
- * How each finish is described when there is a choice between them.
- *
- * The Page system's whole point is that topping the table is worth something —
- * seeds 1 and 2 get two chances at the grand final — so that is what the blurb
- * says, rather than listing five fixtures nobody will match to a diagram.
- */
-const SHAPE_COPY = {
-  [SHAPES.KNOCKOUT]: {
-    title: 'Straight knockout',
-    blurb: (format) =>
-      `1 v 4 and 2 v 3 in the semifinals, then a third-place game and a final. Lose once and you are out.`,
-  },
-  [SHAPES.PAGE]: {
-    title: 'Page playoff',
-    blurb: () =>
-      '1 v 2 and 3 v 4 first. The 1 v 2 winner goes straight to the grand final; its loser gets a second chance against the 3 v 4 winner. Five games.',
-  },
-  [SHAPES.FINAL_ONLY]: {
-    title: 'One deciding game',
-    blurb: () => 'Seeds 1 & 4 against seeds 2 & 3.',
-  },
-};
+import ShapeChoice, { SHAPE_COPY } from './ShapeChoice.jsx';
 import TeamPicker from './TeamPicker.jsx';
 import { drawAll, pruneToField, isComplete } from '../../utils/teamDraft.js';
 import { randomSeed } from '../../utils/rng.js';
@@ -467,32 +445,15 @@ export default function NewSessionModal({ open, onClose, members, onCreate }) {
             shape, so offering it a picker of one would be noise. */}
         {wantsPlayoffs && shapeChoices.length > 1 && (
           <div className="flex flex-col gap-1.5">
-            {shapeChoices.map((s) => {
-              const active = shape === s;
-              return (
-                <button
-                  key={s}
-                  onClick={() => setShape(s)}
-                  aria-pressed={active}
-                  className="text-left"
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    background: active
-                      ? 'color-mix(in srgb, var(--gold) 14%, transparent)'
-                      : 'var(--bg-raised)',
-                    border: `1.5px solid ${active ? 'var(--gold)' : 'transparent'}`,
-                  }}
-                >
-                  <span className="block font-sans text-sm font-bold" style={{ color: 'var(--text-hi)' }}>
-                    {SHAPE_COPY[s].title}
-                  </span>
-                  <span className="block font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                    {SHAPE_COPY[s].blurb(format)}
-                  </span>
-                </button>
-              );
-            })}
+            {shapeChoices.map((s) => (
+              <ShapeChoice
+                key={s}
+                title={SHAPE_COPY[s].title}
+                blurb={`${SHAPE_COPY[s].blurb(format)} · ${slotsForShape(s).length} games`}
+                active={shape === s}
+                onClick={() => setShape(s)}
+              />
+            ))}
           </div>
         )}
 

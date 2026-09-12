@@ -53,6 +53,15 @@ admin can promote somebody else, with a guard that refuses to leave the club
 without one. Without it, "Make admin" in the roster fails and nothing else is
 affected. Re-running `functions.sql` does the same job.
 
+Saving a best-of-three one set at a time adds
+`supabase/migrate-partial-sets.sql`, a `CREATE OR REPLACE` of `submit_score()`
+with an unchanged signature. It changes one idea: `played` for a set match is
+now "somebody has won two sets" rather than "there are scores", so a match one
+set in keeps its sets and stays out of the standings. **Without it, saving a
+half-finished best-of-three marks the whole match played** — a 1–0 would enter
+the table as a tie and a bracket could advance from it. Re-running
+`functions.sql` does the same job.
+
 ## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**
