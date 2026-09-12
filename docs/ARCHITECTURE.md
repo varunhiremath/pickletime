@@ -45,6 +45,7 @@ when someone deep-links to Courtside.
 | `bracketTree.js` | `seedsOf`, `seedLabel`, `bracketTree`, `bracketTreeLines` — the bracket as a tree of nodes, and as the text that goes in the group chat. |
 | `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `sessionWhen`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
 | `sessionName.js` | `parseIsoDate`, `playLabel`, `formatClockTime`, `defaultSessionName`, `nameCarriesDate`, `nameCarriesTime` — what a session is called when nobody types a name. |
+| `sessionState.js` | `unplayedCount`, `isSessionOver`, `endedEarly`, `sessionOutcome` — whether a session is still going. |
 | `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `isDecided`, `displayScore`, `setsLine`, `normaliseSets`, `setsStatus` — matches played as sets. `normaliseSets` returns `{ ok, decided }`: **`ok` means worth saving, `decided` means somebody has won two sets**, and only `decided` makes a match played. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -313,6 +314,36 @@ this job: it refuses to run at all once anything is scored, and by the time anyb
 wants a different finish, half the round robin has been played. The UI is
 `club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
 Playoffs heading on Matches, which is where people look for it.
+
+## When a session is over
+
+`sessions.status` existed in the schema from the start and both backends could
+write it — but **no screen ever did**, so every session stayed `live` forever and
+the app looked, on a Wednesday, exactly as it had on Sunday with a game on court.
+
+`isSessionOver({ session, games })` answers it, and is **derived first, stored
+second** — the same rule the bracket line-ups follow:
+
+- **every fixture has a score** → over. Derived, so it needs no write, no
+  permission, and is the same answer on every phone the instant the last score
+  lands. This is the normal case and nothing is stored for it.
+- **an admin said so** → over. The only thing the games cannot express: the
+  evening that ran out of daylight with four games unplayed. This is the *only*
+  reason `status` is written, from "Finish the session" on the club screen, and
+  `endedEarly()` is what offers "Reopen the session" back.
+
+Being over changes three things. The club card's chip reads **finished** instead
+of **live**; every mid-session control (reshuffle, edit teams, change the finish,
+announce) disappears, because offering them under a finished session is a trap;
+and Today swaps the running layout for a recap — result, your line, share, final
+table, and *"Ready for the next one?"*. Today is a **different render**, not the
+running one greyed out: "on court" and "you play next" are lies once there is
+nothing to play, and leaving them up was the whole bug.
+
+> `getActiveSession()` is now simply **the newest session**. It used to be "the
+> newest one not marked final", which hid a trap: finishing today's session
+> would hand the app back an abandoned one from three weeks ago, because that
+> older row was still marked live.
 
 ## What a session is called
 

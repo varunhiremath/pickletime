@@ -296,10 +296,10 @@ export function createSupabaseBackend() {
       );
     },
 
+    /** The newest session. See localBackend for why it is not "the newest live one". */
     async getActiveSession() {
       const sessions = await this.listSessions();
-      const live = sessions.find((s) => s.status !== SESSION_STATUS.FINAL);
-      const target = live ?? sessions[0];
+      const target = sessions[0];
       return target ? this.getSession(target.id) : null;
     },
 

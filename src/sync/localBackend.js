@@ -96,11 +96,19 @@ export function createLocalBackend() {
       return { session, games };
     },
 
+    /**
+     * The session the app opens on: simply the newest.
+     *
+     * It used to be "the newest one not marked final", which had a trap in it:
+     * finishing today's session would hand the app back an abandoned one from
+     * three weeks ago, because that older row was still marked live. The newest
+     * session is what you mean by "the session" whether it is running, finished
+     * or scheduled for Sunday — whether there is anything left to play is a
+     * question the games answer. See utils/sessionState.js.
+     */
     async getActiveSession() {
       const sessions = await this.listSessions();
-      // The newest session that hasn't been finalised, else the newest overall.
-      const live = sessions.find((s) => s.status !== SESSION_STATUS.FINAL);
-      const target = live ?? sessions[0];
+      const target = sessions[0];
       return target ? this.getSession(target.id) : null;
     },
 
