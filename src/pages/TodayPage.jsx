@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Trophy, Share2 } from 'lucide-react';
+import { ArrowRight, Trophy, Share2, CalendarPlus, Flag } from 'lucide-react';
 import TopBar, { Wordmark } from '../components/layout/TopBar.jsx';
 import Button from '../components/ui/Button.jsx';
 import Chip from '../components/ui/Chip.jsx';
@@ -12,7 +12,8 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { winnerOf, displayScore, isMultiSet } from '../utils/sets.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
-import { buildResultsShare } from '../utils/sessionShare.js';
+import { buildResultsShare, sessionWhen } from '../utils/sessionShare.js';
+import { isSessionOver, sessionOutcome, unplayedCount } from '../utils/sessionState.js';
 import { shareText } from '../utils/share.js';
 import { toast } from '../store/uiStore.js';
 
@@ -95,6 +96,14 @@ export default function TodayPage() {
     [games]
   );
 
+  // Nothing left to play. Until this existed the app looked identical on a
+  // Wednesday to how it had on Sunday with a game on court — see
+  // utils/sessionState.js.
+  const over = isSessionOver({ session, games });
+  const outcome = sessionOutcome({ bracket });
+  const leftUnplayed = unplayedCount(games);
+  const isAdmin = useSessionStore((s) => s.isAdmin());
+
   const shareResults = async () => {
     const text = buildResultsShare({
       session,
@@ -138,6 +147,144 @@ export default function TodayPage() {
             <Button variant="primary">Start a session</Button>
           </Link>
         </EmptyState>
+      </>
+    );
+  }
+
+  /**
+   * The session is over.
+   *
+   * Deliberately a different page rather than the running layout with the
+   * fixtures greyed out: "on court" and "you play next" are lies once there is
+   * nothing to play, and leaving them up is exactly why the app looked like
+   * Sunday afternoon on a Wednesday. What is left is the result, the way to
+   * share it, and the only question that matters next — another one?
+   */
+  if (over) {
+    return (
+      <>
+        <TopBar title="Today" subtitle={club.name} />
+
+        <div className="flex flex-col gap-5 px-4">
+          <section
+            className="flex flex-col items-center gap-2"
+            style={{
+              padding: 'var(--space-5)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--line)',
+            }}
+          >
+            <Chip tone="neutral">
+              <Flag size={10} /> Finished
+            </Chip>
+            <p
+              className="text-center font-display text-lg font-bold"
+              style={{ color: 'var(--text-hi)' }}
+            >
+              {session.name}
+            </p>
+            {sessionWhen(session) && (
+              <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                {sessionWhen(session)}
+              </p>
+            )}
+            {/* An early finish is worth saying plainly. Silently reporting
+                "10 games played" when four never happened would be a lie. */}
+            {leftUnplayed > 0 && (
+              <p className="text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                Ended with {leftUnplayed} {leftUnplayed === 1 ? 'game' : 'games'} unplayed.
+              </p>
+            )}
+          </section>
+
+          {bracket.complete ? (
+            <Podium
+              champion={bracket.champion}
+              runnerUp={bracket.runnerUp}
+              third={bracket.third}
+              members={members}
+            />
+          ) : outcome ? (
+            <section
+              className="flex flex-col items-center gap-1"
+              style={{
+                padding: 'var(--space-5)',
+                borderRadius: 'var(--radius-lg)',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--gold)',
+              }}
+            >
+              <Trophy size={22} style={{ color: 'var(--gold-ink)' }} />
+              <p className="font-display text-xl font-extrabold" style={{ color: 'var(--text-hi)' }}>
+                {outcome.name}
+              </p>
+              <p className="font-sans text-sm" style={{ color: 'var(--text-lo)' }}>
+                Topped the table with {outcome.wins} {outcome.wins === 1 ? 'win' : 'wins'}.
+              </p>
+            </section>
+          ) : null}
+
+          {me && (
+            <section className="flex flex-col gap-2">
+              <h2
+                className="font-sans text-[11px] font-bold uppercase tracking-wider"
+                style={{ color: 'var(--text-lo)' }}
+              >
+                {teamPlay ? 'How your team finished' : 'How you finished'}
+              </h2>
+              <div className="flex gap-2">
+                <StatTile label="Rank" value={me.rank} />
+                <StatTile label="Won" value={me.w} tone="good" />
+                <StatTile label="Lost" value={me.l} tone={me.l > 0 ? 'bad' : 'default'} />
+                <StatTile label="Diff" value={me.diff} tone={me.diff >= 0 ? 'good' : 'bad'} />
+              </div>
+            </section>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <Button variant="secondary" full onClick={shareResults}>
+              <Share2 size={16} />
+              Share the results
+            </Button>
+            <Link to="/standings">
+              <Button variant="secondary" full>
+                See the final table
+              </Button>
+            </Link>
+          </div>
+
+          {/* The question the app should be asking now. */}
+          <section
+            className="flex flex-col items-center gap-2"
+            style={{
+              padding: 'var(--space-5)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--optic)',
+            }}
+          >
+            <p className="font-display text-base font-bold" style={{ color: 'var(--text-hi)' }}>
+              Ready for the next one?
+            </p>
+            {isAdmin ? (
+              <Link to="/club" className="w-full">
+                <Button variant="primary" full>
+                  <CalendarPlus size={16} />
+                  Start a session
+                </Button>
+              </Link>
+            ) : (
+              <p className="text-center font-sans text-sm" style={{ color: 'var(--text-lo)' }}>
+                An admin sets the next one up. It will appear here when they do.
+              </p>
+            )}
+          </section>
+
+          <p className="pb-2 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+            {progress.played} of {progress.total} round-robin games played
+          </p>
+        </div>
       </>
     );
   }

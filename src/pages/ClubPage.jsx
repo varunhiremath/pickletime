@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy, Flag, RotateCcw } from 'lucide-react';
 import {
   buildSessionShare, buildSessionCaption, sessionWhen, formatLabel,
 } from '../utils/sessionShare.js';
@@ -17,6 +17,7 @@ import PlayoffModal from '../components/club/PlayoffModal.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
 import { isTeamFormat, canRunPlayoffs } from '../utils/schedule.js';
+import { isSessionOver, endedEarly, unplayedCount } from '../utils/sessionState.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
 /** "Sunday Doubles" → "sunday-doubles", for a filename people can find again. */
@@ -38,6 +39,11 @@ export default function ClubPage() {
   // The last admin cannot hand the job back — there would be nobody left who
   // could start a session, and no way to appoint one.
   const adminCount = members.filter((m) => m.role === 'admin').length;
+  // Whether there is anything left to play. Derived from the games, so it is
+  // the same answer on every phone the moment the last score lands — see
+  // utils/sessionState.js.
+  const over = isSessionOver({ session, games });
+  const reopenable = endedEarly({ session, games });
 
   /* ---------- club setup (first run) ---------- */
 
@@ -258,6 +264,42 @@ export default function ClubPage() {
     }
   };
 
+  /**
+   * End a session with fixtures still unplayed.
+   *
+   * The ordinary case — everything played — needs nothing stored: the games
+   * say it. This is the evening that ran out of daylight, which is the one
+   * thing the games cannot tell you apart from a session still in progress.
+   */
+  const finishSession = async () => {
+    const left = unplayedCount(games);
+    const ok = await confirmDialog({
+      title: 'Finish this session?',
+      message:
+        `${left} ${left === 1 ? 'game' : 'games'} still ${left === 1 ? 'has' : 'have'} no score. ` +
+        'The standings keep what was played, and you can reopen it if you change your mind.',
+      confirmLabel: 'Finish',
+    });
+    if (!ok) return;
+    try {
+      await getBackend().setSessionStatus(session.id, 'final');
+      await refresh();
+      toast('Session finished.', { type: 'success' });
+    } catch (err) {
+      toast(err.message ?? 'Could not finish the session.', { type: 'error' });
+    }
+  };
+
+  const reopenSession = async () => {
+    try {
+      await getBackend().setSessionStatus(session.id, 'live');
+      await refresh();
+      toast('Session reopened.', { type: 'success' });
+    } catch (err) {
+      toast(err.message ?? 'Could not reopen the session.', { type: 'error' });
+    }
+  };
+
   const createSession = async (config) => {
     await getBackend().createSession(config);
     // followActive, not refresh: if a past session was open from History the
@@ -396,7 +438,10 @@ export default function ClubPage() {
                   {formatLabel(session.format)} · {session.numGames} games · to {session.pointsTo}
                 </p>
               </div>
-              <Chip tone={session.status === 'final' ? 'neutral' : 'optic'}>{session.status}</Chip>
+              {/* Keyed on whether there is anything left to play, not on the
+                  stored status — which nothing used to write, so this chip said
+                  "live" forever. */}
+              <Chip tone={over ? 'neutral' : 'optic'}>{over ? 'finished' : 'live'}</Chip>
             </div>
           ) : (
             <p className="font-sans text-sm" style={{ color: 'var(--text-lo)' }}>
@@ -404,7 +449,9 @@ export default function ClubPage() {
             </p>
           )}
 
-          {session && (
+          {/* Announcing a schedule nobody is going to play is worse than not
+              offering it. The results share lives on Standings. */}
+          {session && !over && (
             <div className="flex flex-col items-center gap-2">
               <Button variant="secondary" full onClick={announceSession}>
                 <Megaphone size={16} />
@@ -420,7 +467,10 @@ export default function ClubPage() {
             </div>
           )}
 
-          {session && isAdmin && (
+          {/* Everything that shapes a session in progress is hidden once there
+              is nothing left to play. Offering "Reshuffle schedule" under a
+              finished session is noise at best and a trap at worst. */}
+          {session && isAdmin && !over && (
             <Button
               variant="secondary"
               full
@@ -435,6 +485,7 @@ export default function ClubPage() {
               — "let's make it a Page" comes up once people see the table. */}
           {session &&
             isAdmin &&
+            !over &&
             canRunPlayoffs({ format: session.format, playerCount: session.playerIds.length }) && (
               <Button variant="secondary" full onClick={() => setPlayoffModal(true)}>
                 <Trophy size={16} />
@@ -442,10 +493,26 @@ export default function ClubPage() {
               </Button>
             )}
 
+          {/* Stopping early. The derived "everything is played" case needs no
+              button; this is for the evening that ran out of daylight. */}
+          {session && isAdmin && !over && unplayedCount(games) > 0 && games.length > 0 && (
+            <Button variant="secondary" full onClick={finishSession}>
+              <Flag size={16} />
+              Finish the session
+            </Button>
+          )}
+
+          {session && isAdmin && reopenable && (
+            <Button variant="secondary" full onClick={reopenSession}>
+              <RotateCcw size={16} />
+              Reopen the session
+            </Button>
+          )}
+
           {isAdmin && (
             <Button variant="primary" full onClick={() => setSessionModal(true)} disabled={members.length < 2}>
               <Play size={16} />
-              {session ? 'Start another session' : 'Start a session'}
+              {!session ? 'Start a session' : over ? 'Start the next session' : 'Start another session'}
             </Button>
           )}
           {isAdmin && members.length < 2 && (
