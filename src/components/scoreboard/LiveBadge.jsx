@@ -7,6 +7,12 @@ import { CloudOff, Wifi } from 'lucide-react';
  * The pulse is a genuine indicator, not decoration: it only animates while the
  * realtime connection is actually up. A steady dot means "not receiving
  * updates", so a glance at the header answers "am I seeing everyone's scores?"
+ *
+ * It says "Synced", not "Live". "Live" was read as the session — reasonably,
+ * since the club card labels a running session exactly that — and a badge that
+ * kept pulsing "Live" over a finished session looked like a bug rather than a
+ * connection indicator. Nothing about this badge has ever concerned the
+ * session; see utils/sessionState.js for the thing that does.
  */
 export default function LiveBadge({ connection, pending = 0 }) {
   if (connection === CONNECTION.OFFLINE) {
@@ -44,7 +50,7 @@ export default function LiveBadge({ connection, pending = 0 }) {
     );
   }
 
-  const live = connection === CONNECTION.LIVE;
+  const synced = connection === CONNECTION.LIVE;
 
   return (
     <span
@@ -52,20 +58,20 @@ export default function LiveBadge({ connection, pending = 0 }) {
       style={{
         padding: '4px 10px',
         borderRadius: 'var(--radius-full)',
-        background: live ? 'color-mix(in srgb, var(--optic) 16%, transparent)' : 'var(--bg-raised)',
-        color: live ? 'var(--optic-ink)' : 'var(--text-lo)',
+        background: synced ? 'color-mix(in srgb, var(--optic) 16%, transparent)' : 'var(--bg-raised)',
+        color: synced ? 'var(--optic-ink)' : 'var(--text-lo)',
       }}
     >
       <span
-        className={live ? 'a-pulse' : ''}
+        className={synced ? 'a-pulse' : ''}
         style={{
           width: 7,
           height: 7,
           borderRadius: '50%',
-          background: live ? 'var(--optic)' : 'var(--text-lo)',
+          background: synced ? 'var(--optic)' : 'var(--text-lo)',
         }}
       />
-      {live ? 'Live' : 'Connecting'}
+      {synced ? 'Synced' : 'Connecting'}
     </span>
   );
 }

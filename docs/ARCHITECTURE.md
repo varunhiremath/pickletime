@@ -515,7 +515,7 @@ manual.
 | `fx/CountUp.jsx` | rAF odometer; falls back to the plain number when effects are off. |
 | `fx/Particles.jsx` | One-shot burst on a saved score. |
 | `scoreboard/Numeral.jsx` | The big tabular score, with a digit roll when it changes underneath you. |
-| `scoreboard/LiveBadge.jsx` | Connection state. The pulse stops when realtime drops, so it's a real indicator. |
+| `scoreboard/LiveBadge.jsx` | **Connection** state — "Synced" / "Connecting" / "Offline" / "This device". The pulse stops when realtime drops, so it's a real indicator. It said "Live" until that got read as the session: the club card labels a running session "live" too, and a header pulsing "Live" over a finished session looks like a bug. This badge has never had anything to do with the session. |
 | `score/ScoreInput.jsx` | Typed score entry — numeric keypad, select-on-focus, empty means unscored (distinct from 0). |
 | `bracket/BracketSection.jsx` | Seeds, semifinals, third-place game, final; locked with a countdown until the round robin ends. |
 | `bracket/Podium.jsx` | Champion / runner-up / third. The one deliberately loud surface in the app. |
