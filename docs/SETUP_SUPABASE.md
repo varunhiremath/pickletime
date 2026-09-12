@@ -62,6 +62,13 @@ half-finished best-of-three marks the whole match played** — a 1–0 would ent
 the table as a tie and a bracket could advance from it. Re-running
 `functions.sql` does the same job.
 
+`supabase/backfill-session-names.sql` is **not** a migration — it is a one-off.
+Sessions name themselves from their date and format now, but ones created
+before that are still called "Session". Running it once gives them the names
+they would have got today. It skips any session whose name already carries its
+date, so a name somebody chose is never flattened and the script is safe to run
+twice. Nothing in the app depends on it.
+
 ## 3. Turn on anonymous sign-in ← easiest step to miss
 
 **Authentication → Sign In / Providers → Anonymous Sign-Ins → enable.**
