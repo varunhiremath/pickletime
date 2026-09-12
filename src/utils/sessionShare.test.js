@@ -7,6 +7,7 @@ import {
   buildSessionCaption,
   buildResultsCaption,
   buildResultsShare,
+  sessionWhen,
 } from './sessionShare.js';
 
 describe('formatSessionDate', () => {
@@ -45,6 +46,43 @@ describe('formatSessionDate', () => {
     expect(formatSessionDate('')).toBeNull();
     expect(formatSessionDate(null)).toBeNull();
     expect(formatSessionDate('9 Aug 2026')).toBeNull();
+  });
+});
+
+describe('sessionWhen', () => {
+  it('gives the date and time for a name that says neither', () => {
+    expect(sessionWhen({ name: 'Doubles', date: '2026-09-13', startTime: '09:00' }))
+      .toBe('Sun 13 Sep, 9:00 am');
+  });
+
+  it('drops the date when the name already carries it', () => {
+    expect(sessionWhen({
+      name: 'Sept 13 · Sunday Doubles', date: '2026-09-13', startTime: '09:00',
+    })).toBe('9:00 am');
+  });
+
+  it('is empty when the name carries the date and there is no time', () => {
+    expect(sessionWhen({ name: 'Sept 13 · Sunday Doubles', date: '2026-09-13' })).toBe('');
+  });
+
+  it('keeps the date when the name mentions a different one', () => {
+    expect(sessionWhen({ name: 'Sept 6 rematch', date: '2026-09-13' })).toBe('Sun 13 Sep');
+  });
+
+  it('drops the time when the name carries that too', () => {
+    expect(sessionWhen({
+      name: 'Sept 13 · Sunday Doubles · 6:00 pm', date: '2026-09-13', startTime: '18:00',
+    })).toBe('');
+  });
+
+  it('keeps the date when only the time is in the name', () => {
+    expect(sessionWhen({ name: 'Doubles at 6:00 pm', date: '2026-09-13', startTime: '18:00' }))
+      .toBe('Sun 13 Sep');
+  });
+
+  it('handles a missing session', () => {
+    expect(sessionWhen(null)).toBe('');
+    expect(sessionWhen(undefined)).toBe('');
   });
 });
 

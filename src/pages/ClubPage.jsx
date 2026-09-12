@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy } from 'lucide-react';
 import {
-  buildSessionShare, buildSessionCaption, formatSessionDate, formatSessionTime, formatLabel,
+  buildSessionShare, buildSessionCaption, sessionWhen, formatLabel,
 } from '../utils/sessionShare.js';
 import { renderSessionPng } from '../utils/sessionImage.js';
 import { shareText, shareFile } from '../utils/share.js';
@@ -382,11 +382,13 @@ export default function ClubPage() {
                 <p className="truncate font-display text-base font-bold" style={{ color: 'var(--text-hi)' }}>
                   {session.name}
                 </p>
-                <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                  {[formatSessionDate(session.date), formatSessionTime(session.startTime)]
-                    .filter(Boolean)
-                    .join(', ')}
-                </p>
+                {/* Empty when the name already carries the date, which it does
+                    by default now — see sessionWhen(). */}
+                {sessionWhen(session) && (
+                  <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                    {sessionWhen(session)}
+                  </p>
+                )}
                 <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
                   {/* Was hardcoded to Americano for every non-singles session,
                       so a fixed-pairs morning was labelled as the wrong format
@@ -603,7 +605,7 @@ export default function ClubPage() {
                       {s.name}
                     </span>
                     <span className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                      {s.date} · {s.numGames} games
+                      {[sessionWhen(s), `${s.numGames} games`].filter(Boolean).join(' · ')}
                     </span>
                   </button>
                   {isAdmin && (
@@ -627,6 +629,7 @@ export default function ClubPage() {
         open={sessionModal}
         onClose={() => setSessionModal(false)}
         members={members}
+        sessions={sessions}
         onCreate={createSession}
       />
 

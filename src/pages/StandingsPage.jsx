@@ -9,7 +9,7 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
-import { buildResultsShare, buildResultsCaption, formatSessionDate } from '../utils/sessionShare.js';
+import { buildResultsShare, buildResultsCaption, sessionWhen } from '../utils/sessionShare.js';
 import { renderResultsPng } from '../utils/resultsImage.js';
 import { shareText, shareFile } from '../utils/share.js';
 import { toast } from '../store/uiStore.js';
@@ -104,7 +104,7 @@ export default function StandingsPage() {
       bracket,
       nameOf: (ids) => (ids ?? []).map((id) => members.find((m) => m.id === id)?.name ?? '—').join(' & '),
       title: session.name,
-      subtitle: [formatSessionDate(session.date), club?.name].filter(Boolean).join(' · '),
+      subtitle: [sessionWhen(session), club?.name].filter(Boolean).join(' · '),
       url: appUrl,
     });
 
