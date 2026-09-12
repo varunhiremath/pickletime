@@ -12,11 +12,21 @@ import { toast } from '../store/uiStore.js';
 import { useHaptics } from '../hooks/useHaptics.js';
 import { playChime, playError } from '../utils/sound.js';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
+import { isSessionOver } from '../utils/sessionState.js';
 
+/**
+ * Next / Done / Mine, rather than All / Mine / To play.
+ *
+ * Mid-session the only list anybody wants is what is left to play — a scrolling
+ * wall of finished games with the next fixture buried in it is the opposite of
+ * useful on a court. Played games are still one tap away, they are just not the
+ * default any more, and once the session is over Done becomes the default
+ * because by then the results are the point.
+ */
 const FILTERS = [
-  { key: 'all', label: 'All' },
+  { key: 'next', label: 'Next' },
+  { key: 'done', label: 'Done' },
   { key: 'mine', label: 'Mine' },
-  { key: 'unplayed', label: 'To play' },
 ];
 
 export default function MatchesPage() {
@@ -24,7 +34,11 @@ export default function MatchesPage() {
   const players = useSessionStore((s) => s.sessionPlayers());
   const isAdmin = useSessionStore((s) => s.isAdmin());
   const refresh = useSessionStore((s) => s.refresh);
-  const [filter, setFilter] = useState('all');
+  // No initial value: which tab you want depends on whether the session is
+  // finished, and that is not known until the games load. `null` means "not
+  // chosen yet" so the default below can follow the session without ever
+  // overriding a tap. See `filter`.
+  const [picked, setPicked] = useState(null);
   const [playoffModal, setPlayoffModal] = useState(false);
   const haptic = useHaptics();
 
@@ -38,8 +52,13 @@ export default function MatchesPage() {
   // sensibly file under "Round 5".
   const fixtures = useMemo(() => roundRobinGames(games), [games]);
 
+  const over = isSessionOver({ session, games });
+  // Finished sessions open on the results; running ones open on what is left.
+  const filter = picked ?? (over ? 'done' : 'next');
+
   const visible = useMemo(() => {
-    if (filter === 'unplayed') return fixtures.filter((g) => !g.played);
+    if (filter === 'next') return fixtures.filter((g) => !g.played);
+    if (filter === 'done') return fixtures.filter((g) => g.played);
     if (filter === 'mine' && identity?.memberId) {
       return fixtures.filter(
         (g) => g.teamA.includes(identity.memberId) || g.teamB.includes(identity.memberId)
@@ -47,6 +66,18 @@ export default function MatchesPage() {
     }
     return fixtures;
   }, [fixtures, filter, identity?.memberId]);
+
+  // On the chips themselves, because "how many are left" is the question the
+  // tab is really being asked and a number answers it without a tap.
+  const counts = useMemo(() => ({
+    next: fixtures.filter((g) => !g.played).length,
+    done: fixtures.filter((g) => g.played).length,
+    mine: identity?.memberId
+      ? fixtures.filter(
+          (g) => g.teamA.includes(identity.memberId) || g.teamB.includes(identity.memberId)
+        ).length
+      : 0,
+  }), [fixtures, identity?.memberId]);
 
   const rounds = useMemo(() => {
     const byRound = new Map();
@@ -122,7 +153,7 @@ export default function MatchesPage() {
           return (
             <button
               key={f.key}
-              onClick={() => setFilter(f.key)}
+              onClick={() => setPicked(f.key)}
               className="shrink-0 font-sans text-[13px] font-semibold"
               style={{
                 padding: '7px 15px',
@@ -132,6 +163,9 @@ export default function MatchesPage() {
               }}
             >
               {f.label}
+              {counts[f.key] > 0 && (
+                <span className="num ml-1.5 opacity-70">{counts[f.key]}</span>
+              )}
             </button>
           );
         })}
@@ -140,11 +174,19 @@ export default function MatchesPage() {
       <div className="flex flex-col gap-5 px-4">
         {visible.length === 0 ? (
           <EmptyState
-            title={filter === 'mine' ? 'None of these are yours' : 'Everything has been played'}
+            title={
+              filter === 'mine'
+                ? 'None of these are yours'
+                : filter === 'done'
+                  ? 'Nothing played yet'
+                  : 'Every game is in'
+            }
             message={
               filter === 'mine'
                 ? "You're not in any of these fixtures."
-                : 'Every round-robin game has a score.'
+                : filter === 'done'
+                  ? 'Scores land here as they are entered.'
+                  : 'Every round-robin game has a score. Tap Done to look back at them.'
             }
           />
         ) : (

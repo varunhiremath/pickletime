@@ -315,6 +315,18 @@ wants a different finish, half the round robin has been played. The UI is
 `club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
 Playoffs heading on Matches, which is where people look for it.
 
+## The Matches tabs
+
+**Next · Done · Mine**, and the default follows the session: `next` while it is
+running, `done` once it is over. Mid-session the only list anybody wants is what
+is left to play — a scrolling wall of finished games with the next fixture
+buried in it is the opposite of useful on a court — and once the session is over
+the results are the point instead.
+
+The chips carry counts (`Next 3`), because "how many are left" is the question
+the tab is really being asked. The chosen tab is held as `picked`, which starts
+`null` so the default can follow the session without ever overriding a tap.
+
 ## When a session is over
 
 `sessions.status` existed in the schema from the start and both backends could
@@ -515,7 +527,7 @@ manual.
 | `fx/CountUp.jsx` | rAF odometer; falls back to the plain number when effects are off. |
 | `fx/Particles.jsx` | One-shot burst on a saved score. |
 | `scoreboard/Numeral.jsx` | The big tabular score, with a digit roll when it changes underneath you. |
-| `scoreboard/LiveBadge.jsx` | **Connection** state — "Synced" / "Connecting" / "Offline" / "This device". The pulse stops when realtime drops, so it's a real indicator. It said "Live" until that got read as the session: the club card labels a running session "live" too, and a header pulsing "Live" over a finished session looks like a bug. This badge has never had anything to do with the session. |
+| `scoreboard/LiveBadge.jsx` | The header badge: **two facts, one chip**, because a phone header has room for one. The **word** is the session — "In play" / "Finished", or "Synced" / "This device" when there is no session. The **dot** is the connection, and pulses only while realtime is genuinely up. Offline and Connecting take the word over entirely: both are rare, both are actionable, and "your scores are not going anywhere" outranks anything it could say about the session. |
 | `score/ScoreInput.jsx` | Typed score entry — numeric keypad, select-on-focus, empty means unscored (distinct from 0). |
 | `bracket/BracketSection.jsx` | Seeds, semifinals, third-place game, final; locked with a countdown until the round robin ends. |
 | `bracket/Podium.jsx` | Champion / runner-up / third. The one deliberately loud surface in the app. |
