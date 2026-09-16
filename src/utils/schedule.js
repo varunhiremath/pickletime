@@ -11,6 +11,7 @@
 // Everything here is pure: ids in, games out. No DB, no DOM, no clock.
 
 import { mulberry32, shuffle } from './rng.js';
+import { dealIntoPools, MIN_POOL_FIELD, QUALIFY_PER_POOL } from './pools.js';
 import {
   STAGE, BRACKET_SIZE, SHAPES, buildBracketGames, roundRobinGames,
 } from './bracket.js';
@@ -21,10 +22,22 @@ export const FORMATS = {
   // Fixed partners for the whole session, drawn at random. The unit being
   // ranked is the TEAM, not the player — see utils/entrants.js.
   PAIRS: 'doubles_pairs',
+  // Singles, but the field is split into two pools that each play their own
+  // round robin, and the top two from each cross over into the semifinals.
+  // Sixteen players in one round robin is 120 games; two pools of eight is 56,
+  // and every one of them matters. See utils/pools.js.
+  POOLS: 'singles_pools',
 };
 
 /** Formats whose entrants are teams rather than individuals. */
 export const isTeamFormat = (format) => format === FORMATS.PAIRS;
+
+/** Formats played one against one. Both are ranked as individuals. */
+export const isSinglesFormat = (format) =>
+  format === FORMATS.SINGLES || format === FORMATS.POOLS;
+
+/** How many pools a pooled session is drawn into. Two, which makes semifinals. */
+export const POOL_COUNT = 2;
 
 function makeGame({ ordinal, round, teamA, teamB, byes }) {
   return {
@@ -100,6 +113,53 @@ export function generateSingles(playerIds) {
   return circleMethod(playerIds).map(({ round, a, b, sittingOut }) =>
     makeGame({ ordinal: ordinal++, round, teamA: [a], teamB: [b], byes: sittingOut })
   );
+}
+
+/**
+ * Split the field into pools and run a round robin inside each.
+ *
+ * The rounds of both pools are played together — round 1 is round 1 of Pool A
+ * and round 1 of Pool B — so with two courts the two pools genuinely run in
+ * parallel rather than one pool waiting for the other to finish.
+ *
+ * Nothing records which pool anybody is in. It does not need to: pool play
+ * never crosses pools, so the fixtures themselves say it, and poolsOf() reads
+ * it back. See utils/pools.js.
+ *
+ * The draw is seeded, so a redraw is a deliberate act with a new seed rather
+ * than something that quietly differs between two phones looking at the same
+ * session.
+ */
+export function generatePools(playerIds, { seed = 1, poolCount = POOL_COUNT } = {}) {
+  if (playerIds.length < MIN_POOL_FIELD) return [];
+
+  const drawn = shuffle(playerIds, mulberry32(seed));
+  const pools = dealIntoPools(drawn, poolCount);
+  // Every pool has to be able to send its quota through, or the semifinals
+  // cannot be filled and the format is not the one anybody agreed to.
+  if (pools.some((p) => p.length <= QUALIFY_PER_POOL)) return [];
+
+  const perPool = pools.map((ids) => circleMethod(ids));
+  const lastRound = Math.max(0, ...perPool.flat().map((f) => f.round));
+
+  const games = [];
+  let ordinal = 1;
+
+  for (let round = 1; round <= lastRound; round++) {
+    const fixtures = perPool.flatMap((f) => f.filter((x) => x.round === round));
+    if (fixtures.length === 0) continue;
+
+    // Sitting out is a fact about the round, not about one pool: a player
+    // waiting while the other pool plays is sitting out just the same.
+    const playing = new Set(fixtures.flatMap((f) => [f.a, f.b]));
+    const byes = playerIds.filter((id) => !playing.has(id));
+
+    for (const f of fixtures) {
+      games.push(makeGame({ ordinal: ordinal++, round, teamA: [f.a], teamB: [f.b], byes }));
+    }
+  }
+
+  return games;
 }
 
 /**
@@ -266,6 +326,9 @@ export function generateAmericano(playerIds, { numGames = 8, courts = 1, seed = 
  */
 export function playoffShape(format) {
   if (format === FORMATS.SINGLES || format === FORMATS.PAIRS) return SHAPES.KNOCKOUT;
+  // Pools are semifinals and a final by definition — the pools exist to decide
+  // who plays them.
+  if (format === FORMATS.POOLS) return SHAPES.KNOCKOUT;
   if (format === FORMATS.AMERICANO) return SHAPES.FINAL_ONLY;
   return null;
 }
@@ -282,6 +345,10 @@ export function playoffShapesFor(format) {
   if (format === FORMATS.SINGLES || format === FORMATS.PAIRS) {
     return [SHAPES.KNOCKOUT, SHAPES.PAGE];
   }
+  // Pools get the knockout and nothing else. The Page system is a single-table
+  // idea — it gives the top two seeds a second chance at the grand final — and
+  // "the top two" does not mean anything across two tables that never met.
+  if (format === FORMATS.POOLS) return [SHAPES.KNOCKOUT];
   if (format === FORMATS.AMERICANO) return [SHAPES.FINAL_ONLY];
   return [];
 }
@@ -304,6 +371,8 @@ export function resolvePlayoffShape(format, playoffs) {
 /** Whether a session can finish with a playoff at all. */
 export function canRunPlayoffs({ format, playerCount }) {
   if (format === FORMATS.SINGLES) return playerCount >= BRACKET_SIZE;
+  // Pools need enough to split, and the split itself is what fills the bracket.
+  if (format === FORMATS.POOLS) return playerCount >= MIN_POOL_FIELD;
   // Fixed pairs seed the bracket by team, so it needs four TEAMS — eight
   // players — not four people.
   if (format === FORMATS.PAIRS) return playerCount >= BRACKET_SIZE * 2 && playerCount % 2 === 0;
@@ -340,9 +409,11 @@ export function generateSchedule({
   const games =
     format === FORMATS.SINGLES
       ? generateSingles(playerIds)
-      : format === FORMATS.PAIRS
-        ? generatePairs(playerIds, { seed, teams })
-        : generateAmericano(playerIds, { numGames, courts, seed });
+      : format === FORMATS.POOLS
+        ? generatePools(playerIds, { seed })
+        : format === FORMATS.PAIRS
+          ? generatePairs(playerIds, { seed, teams })
+          : generateAmericano(playerIds, { numGames, courts, seed });
 
   const shape = resolvePlayoffShape(format, playoffs);
   if (shape && canRunPlayoffs({ format, playerCount: playerIds.length }) && games.length > 0) {
@@ -417,6 +488,12 @@ export function assignCourts(games, courts = 1) {
 export function gamesPerPlayer({ format, playerCount, numGames }) {
   if (playerCount < 2) return 0;
   if (format === FORMATS.SINGLES) return playerCount - 1;
+  // In pools you only meet your own pool, which is the point: the smaller of
+  // the two pools plays one fewer game, so this is the lower bound rather than
+  // a number half the field would find wrong.
+  if (format === FORMATS.POOLS) {
+    return Math.max(0, Math.floor(playerCount / POOL_COUNT) - 1);
+  }
   // In fixed pairs you play every game your team plays, and your team meets
   // each of the other teams once.
   if (format === FORMATS.PAIRS) return Math.max(0, Math.floor(playerCount / 2) - 1);

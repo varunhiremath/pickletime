@@ -24,6 +24,9 @@
 
 import { computeStandings } from './standings.js';
 import { winnerOf } from './sets.js';
+import {
+  poolsOf, isPooled, seedFromPools, poolSeedLabel, QUALIFY_PER_POOL,
+} from './pools.js';
 
 export const STAGE = {
   RR: 'rr',
@@ -410,23 +413,76 @@ export function resolveBracket(entrants, games) {
   // table that decides the playoffs would be circular.
   // Rows come back keyed by entrant id; carry the underlying players along so
   // the bracket can put actual people into a semifinal.
-  const standings = computeStandings(field, collapse(rrGames)).map((row) => ({
+  const collapsedRr = collapse(rrGames);
+  const withPlayers = (row) => ({
     ...row,
     playerIds: byId.get(row.id)?.playerIds ?? [row.id],
-  }));
-  const qualifiers = rr.complete ? standings.slice(0, BRACKET_SIZE) : [];
+  });
+  const standings = computeStandings(field, collapsedRr).map(withPlayers);
 
-  // Fourth and fifth level on every sorted criterion means the last playoff spot
-  // was settled alphabetically. Worth saying out loud rather than pretending the
-  // table decided it.
-  const fourth = standings[BRACKET_SIZE - 1];
-  const fifth = standings[BRACKET_SIZE];
+  // Pools are read off the fixtures, not stored: pool play never crosses pools,
+  // so who has a fixture against whom already says it. See utils/pools.js.
+  const poolGroups = poolsOf(collapsedRr);
+  const pooled = isPooled(poolGroups);
+
+  // One table per pool. A combined table across pools would rank people who
+  // never met by records built against different opposition, which is exactly
+  // the comparison pool play exists to avoid making.
+  const pools = pooled
+    ? poolGroups.map((p) => {
+        const members = field.filter((e) => p.ids.includes(e.id));
+        const inPool = collapsedRr.filter((g) => p.ids.includes(g.teamA[0]));
+        return {
+          name: p.name,
+          ids: p.ids,
+          standings: computeStandings(members, inPool).map(withPlayers),
+        };
+      })
+    : [];
+
+  /**
+   * The four who go through.
+   *
+   * Pooled, the order is [A1, B1, A2, B2], which makes the bracket's ordinary
+   * "1 plays 4, 2 plays 3" seeding produce A1 v B2 and B1 v A2 — every
+   * semifinal between pools, and the two pool winners able to meet only in the
+   * final. No new shape was needed for that; see utils/pools.js.
+   */
+  const qualifiers = !rr.complete
+    ? []
+    : pooled
+      ? seedFromPools(pools.map((p) => p.standings))
+      : standings.slice(0, BRACKET_SIZE);
+
+  // The spot that might have been settled alphabetically rather than on court.
+  // In one table that is 4th against 5th; in pools it is 2nd against 3rd of
+  // whichever pool, because that is the cut that sends somebody home.
   const tiedForLastSpot = Boolean(
-    rr.complete && fourth && fifth && fourth.rank === fifth.rank
+    rr.complete &&
+      (pooled
+        ? pools.some((p) => {
+            const last = p.standings[QUALIFY_PER_POOL - 1];
+            const next = p.standings[QUALIFY_PER_POOL];
+            return last && next && last.rank === next.rank;
+          })
+        : (() => {
+            const fourth = standings[BRACKET_SIZE - 1];
+            const fifth = standings[BRACKET_SIZE];
+            return fourth && fifth && fourth.rank === fifth.rank;
+          })())
   );
 
   const enabled = ko.length > 0;
   const enoughEntrants = standings.length >= BRACKET_SIZE;
+
+  /** Where a pooled slot's two sides come from, in words. */
+  const sourceFor = (def) => {
+    if (!pooled || !def.seeds || qualifiers.length < BRACKET_SIZE) return null;
+    const [i, j] = def.seeds;
+    const a = poolSeedLabel(qualifiers[i]);
+    const b = poolSeedLabel(qualifiers[j]);
+    return a && b ? `${a} vs ${b}` : null;
+  };
 
   // Resolved sides accumulate as we walk the slots in play order, so the final
   // can read the semifinal winners that were worked out a moment ago.
@@ -457,7 +513,10 @@ export function resolveBracket(entrants, games) {
       stage: def.stage,
       label: def.label,
       short: def.short,
-      source: def.source,
+      // "Pool A winner vs Pool B runner-up" rather than "Seed 1 vs Seed 4".
+      // Built from the qualifiers themselves, so it stays right whatever the
+      // slot table's seeds are.
+      source: sourceFor(def) ?? def.source,
       // Carried from the slot table rather than worked out downstream, so a new
       // shape is a table entry and not a special case in three renderers.
       group: def.group ?? null,
@@ -505,6 +564,10 @@ export function resolveBracket(entrants, games) {
     shape,
     rr,
     standings,
+    // Empty for an unpooled session, so `pools.length > 1` is the one question
+    // any renderer has to ask.
+    pools,
+    pooled,
     qualifiers,
     tiedForLastSpot,
     matches,

@@ -16,7 +16,7 @@ import InviteRow from '../components/club/InviteRow.jsx';
 import PlayoffModal from '../components/club/PlayoffModal.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
-import { isTeamFormat, canRunPlayoffs } from '../utils/schedule.js';
+import { isTeamFormat, canRunPlayoffs, FORMATS } from '../utils/schedule.js';
 import { isSessionOver, endedEarly, unplayedCount } from '../utils/sessionState.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
 
@@ -221,16 +221,19 @@ export default function ClubPage() {
    * re-randomise is the wrong gesture once partnerships can be chosen.
    */
   const reshuffle = async () => {
+    const pooled = session.format === FORMATS.POOLS;
     const ok = await confirmDialog({
-      title: 'Reshuffle the schedule?',
-      message: 'A new random schedule for the same players. Only possible before any score is entered.',
-      confirmLabel: 'Reshuffle',
+      title: pooled ? 'Redraw the pools?' : 'Reshuffle the schedule?',
+      message: pooled
+        ? 'The field is split into two pools again from scratch, so everybody may end up somewhere different. Only possible before any score is entered.'
+        : 'A new random schedule for the same players. Only possible before any score is entered.',
+      confirmLabel: pooled ? 'Redraw' : 'Reshuffle',
     });
     if (!ok) return;
     try {
       await getBackend().regenerateSchedule(session.id);
       await refresh();
-      toast('Schedule reshuffled.', { type: 'success' });
+      toast(pooled ? 'Pools redrawn.' : 'Schedule reshuffled.', { type: 'success' });
     } catch (err) {
       toast(err.message ?? 'Could not reshuffle.', { type: 'error' });
     }
@@ -477,7 +480,11 @@ export default function ClubPage() {
               onClick={() => (isTeamFormat(session.format) ? setTeamsModal(true) : reshuffle())}
             >
               {isTeamFormat(session.format) ? <Users size={16} /> : <Shuffle size={16} />}
-              {isTeamFormat(session.format) ? 'Edit teams' : 'Reshuffle schedule'}
+              {isTeamFormat(session.format)
+                ? 'Edit teams'
+                : session.format === FORMATS.POOLS
+                  ? 'Redraw the pools'
+                  : 'Reshuffle schedule'}
             </Button>
           )}
 

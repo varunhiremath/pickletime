@@ -62,6 +62,13 @@ half-finished best-of-three marks the whole match played** — a 1–0 would ent
 the table as a tie and a bracket could advance from it. Re-running
 `functions.sql` does the same job.
 
+Pooled singles adds `supabase/migrate-pools.sql`: it widens the `format`
+constraint to allow `singles_pools`. Without it, creating a pooled session fails
+with "violates check constraint sessions_format_check" and nothing else is
+affected. Re-running `schema.sql` does the same job. There is deliberately no
+`pool` column — pool play never crosses pools, so the fixtures already say who
+is in which pool. See `src/utils/pools.js`.
+
 `supabase/backfill-session-names.sql` is **not** a migration — it is a one-off.
 Sessions name themselves from their date and format now, but ones created
 before that are still called "Session". Running it once gives them the names

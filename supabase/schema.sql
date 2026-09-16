@@ -122,7 +122,7 @@ begin
 
   alter table public.sessions
     add constraint sessions_format_check
-    check (format in ('singles', 'doubles_americano', 'doubles_pairs'));
+    check (format in ('singles', 'doubles_americano', 'doubles_pairs', 'singles_pools'));
 end $$;
 
 -- Start time, as "HH:MM" 24-hour text. Text rather than `time` because it is

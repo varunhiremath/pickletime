@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { generateSchedule, FORMATS } from './schedule.js';
 import {
   STAGE,
   SLOT,
@@ -608,5 +609,107 @@ describe('the Page playoff system', () => {
     // And the shape-less lookup must not name it after the other bracket's.
     expect(slotLabel(games.find((g) => g.slot === 'final'), SHAPES.PAGE)).toBe('Grand final');
     expect(slotLabel(games.find((g) => g.slot === 'final'), SHAPES.KNOCKOUT)).toBe('Final');
+  });
+});
+
+describe('a pooled session', () => {
+  const names = ['Varun','Srinath','Hari','Pankaj','Sudheer','Vikash','Anand','Rahul'];
+  const entrants = names.map((name, i) => ({ id: `p${i + 1}`, name }));
+  const ids = entrants.map((e) => e.id);
+
+  const build = () =>
+    generateSchedule({
+      format: FORMATS.POOLS,
+      playerIds: ids,
+      seed: 21,
+      playoffs: true,
+      courts: 2,
+    }).map((g, i) => ({ ...g, id: `g${i + 1}` }));
+
+  /** Score every pool game, with earlier-listed players winning. */
+  const playPools = (games) =>
+    games.map((g) =>
+      g.stage === 'rr'
+        ? { ...g, scoreA: ids.indexOf(g.teamA[0]) < ids.indexOf(g.teamB[0]) ? 11 : 4,
+            scoreB: ids.indexOf(g.teamA[0]) < ids.indexOf(g.teamB[0]) ? 4 : 11, played: true }
+        : g
+    );
+
+  it('reports two pools while the pools are still being played', () => {
+    const games = build();
+    const partial = games.map((g, i) => (i < 3 && g.stage === 'rr'
+      ? { ...g, scoreA: 11, scoreB: 5, played: true } : g));
+    const b = resolveBracket(entrants, partial);
+    expect(b.pooled).toBe(true);
+    expect(b.pools).toHaveLength(2);
+    expect(b.pools.map((p) => p.name)).toEqual(['A', 'B']);
+  });
+
+  it('gives each pool its own table of four', () => {
+    const b = resolveBracket(entrants, playPools(build()));
+    expect(b.pools.map((p) => p.standings.length)).toEqual([4, 4]);
+    // Nobody appears in both.
+    const a = new Set(b.pools[0].standings.map((r) => r.id));
+    expect(b.pools[1].standings.every((r) => !a.has(r.id))).toBe(true);
+  });
+
+  it('sends the top two of each pool through, winners first', () => {
+    const b = resolveBracket(entrants, playPools(build()));
+    expect(b.qualifiers).toHaveLength(4);
+    expect(b.qualifiers.map((q) => `${q.pool}${q.poolRank}`)).toEqual(['A1', 'B1', 'A2', 'B2']);
+  });
+
+  it('crosses the pools over in the semifinals', () => {
+    const b = resolveBracket(entrants, playPools(build()));
+    const poolOf = new Map();
+    b.pools.forEach((p) => p.ids.forEach((id) => poolOf.set(id, p.name)));
+
+    for (const slot of ['sf1', 'sf2']) {
+      const m = b.matches.find((x) => x.slot === slot);
+      expect(m.ready).toBe(true);
+      // Every semifinal is between pools — two from one pool can never meet
+      // before the final, which is the whole point of pool play.
+      expect(poolOf.get(m.teamA[0])).not.toBe(poolOf.get(m.teamB[0]));
+    }
+  });
+
+  it('puts the two pool winners on opposite sides of the draw', () => {
+    const b = resolveBracket(entrants, playPools(build()));
+    const sf1 = b.matches.find((m) => m.slot === 'sf1');
+    const sf2 = b.matches.find((m) => m.slot === 'sf2');
+    const winners = b.qualifiers.filter((q) => q.poolRank === 1).map((q) => q.id);
+    // One winner in each semifinal, so they can only meet in the final.
+    expect(winners.filter((id) => sf1.teamA.includes(id) || sf1.teamB.includes(id))).toHaveLength(1);
+    expect(winners.filter((id) => sf2.teamA.includes(id) || sf2.teamB.includes(id))).toHaveLength(1);
+  });
+
+  it('describes the semifinals by pool rather than by seed', () => {
+    const b = resolveBracket(entrants, playPools(build()));
+    const sf1 = b.matches.find((m) => m.slot === 'sf1');
+    expect(sf1.source).toMatch(/^Pool [AB] winner vs Pool [AB] runner-up$/);
+    expect(sf1.source).not.toContain('Seed');
+  });
+
+  it('seeds nobody until every pool game is in', () => {
+    const games = build();
+    const nearly = games.map((g, i) => (g.stage === 'rr' && i > 0
+      ? { ...g, scoreA: 11, scoreB: 5, played: true } : g));
+    const b = resolveBracket(entrants, nearly);
+    expect(b.rr.complete).toBe(false);
+    expect(b.qualifiers).toEqual([]);
+    expect(b.matches.find((m) => m.slot === 'sf1').ready).toBe(false);
+  });
+
+  it('still knows it is unpooled for an ordinary singles session', () => {
+    const games = generateSchedule({
+      format: FORMATS.SINGLES, playerIds: ids.slice(0, 4), seed: 3, playoffs: true,
+    }).map((g, i) => ({ ...g, id: `s${i}` }));
+    const played = games.map((g) => (g.stage === 'rr'
+      ? { ...g, scoreA: 11, scoreB: 6, played: true } : g));
+    const b = resolveBracket(entrants.slice(0, 4), played);
+    expect(b.pooled).toBe(false);
+    expect(b.pools).toEqual([]);
+    expect(b.qualifiers).toHaveLength(4);
+    expect(b.matches.find((m) => m.slot === 'sf1').source).toContain('Seed');
   });
 });

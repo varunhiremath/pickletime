@@ -4,8 +4,9 @@ import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
 import {
   FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape,
-  playoffShapesFor, resolvePlayoffShape,
+  playoffShapesFor, resolvePlayoffShape, POOL_COUNT,
 } from '../../utils/schedule.js';
+import { MIN_POOL_FIELD, QUALIFY_PER_POOL, poolName } from '../../utils/pools.js';
 import { defaultSessionName } from '../../utils/sessionName.js';
 import { BRACKET_SIZE, SHAPES, slotsForShape } from '../../utils/bracket.js';
 
@@ -34,6 +35,12 @@ const FORMAT_OPTIONS = [
     title: 'Doubles · Americano',
     desc: 'Partners and opponents rotate every game.',
     min: 4,
+  },
+  {
+    value: FORMATS.POOLS,
+    title: 'Singles · Two pools',
+    desc: 'Split at random into two pools, top two from each into the semifinals.',
+    min: MIN_POOL_FIELD,
   },
 ];
 
@@ -185,7 +192,8 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   const oddField = Boolean(option.evenOnly) && playerIds.length % 2 === 1;
   const teamsReady = format !== FORMATS.PAIRS || isComplete(playerIds, teams);
   const enough = playerIds.length >= option.min && !oddField && teamsReady;
-  const maxCourts = Math.max(1, Math.floor(playerIds.length / (format === FORMATS.SINGLES ? 2 : 4)));
+  const singlesLike = format === FORMATS.SINGLES || format === FORMATS.POOLS;
+  const maxCourts = Math.max(1, Math.floor(playerIds.length / (singlesLike ? 2 : 4)));
   const teamCount = Math.floor(playerIds.length / 2);
 
   const perPlayer = enough
@@ -198,6 +206,14 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   // Counted from the shape's own slot table rather than hardcoded: the Page
   // system is five fixtures, the bracket four, the Americano finish one.
   const playoffGames = slotsForShape(resolvePlayoffShape(format, shape) ?? undefined).length;
+
+  // Two round robins, one per pool. Counted rather than approximated, because
+  // an odd field splits 5/4 and "n(n-1)/2 of half the field" would be wrong.
+  const poolGameCount = (() => {
+    const big = Math.ceil(playerIds.length / POOL_COUNT);
+    const small = Math.floor(playerIds.length / POOL_COUNT);
+    return (big * (big - 1)) / 2 + (small * (small - 1)) / 2;
+  })();
 
   const toggle = (id) => {
     setPicked((prev) => {
@@ -470,10 +486,14 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
                 {!playoffsAvailable
                   ? format === FORMATS.PAIRS
                     ? `Needs at least ${BRACKET_SIZE * 2} players — four teams.`
-                    : `Needs at least ${BRACKET_SIZE} players.`
+                    : format === FORMATS.POOLS
+                      ? `Needs at least ${MIN_POOL_FIELD} players — four a side.`
+                      : `Needs at least ${BRACKET_SIZE} players.`
                   : format === FORMATS.AMERICANO
                     ? 'Top four pair up for one deciding game — seeds 1 & 4 against 2 & 3.'
-                    : `The top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} play it out — pick how below.`}
+                    : format === FORMATS.POOLS
+                      ? `The top ${QUALIFY_PER_POOL} from each pool cross over into the semifinals — ${poolName(0)}1 v ${poolName(1)}2 and ${poolName(1)}1 v ${poolName(0)}2.`
+                      : `The top four ${format === FORMATS.PAIRS ? 'teams' : 'seeds'} play it out — pick how below.`}
               </span>
             </span>
           </button>
@@ -503,6 +523,24 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
             </strong>{' '}
             — {playerIds.length - 1} each
             {wantsPlayoffs ? `, plus ${playoffGames} playoff games` : ''}.
+          </p>
+        )}
+
+        {format === FORMATS.POOLS && enough && (
+          <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+            Two pools of{' '}
+            <strong style={{ color: 'var(--text-hi)' }}>
+              {Math.ceil(playerIds.length / POOL_COUNT)}
+              {playerIds.length % POOL_COUNT === 0
+                ? ''
+                : ` and ${Math.floor(playerIds.length / POOL_COUNT)}`}
+            </strong>{' '}
+            playing{' '}
+            <strong style={{ color: 'var(--text-hi)' }}>{poolGameCount} games</strong>
+            {wantsPlayoffs ? ` plus ${playoffGames} playoff games` : ''} — against{' '}
+            {(playerIds.length * (playerIds.length - 1)) / 2} for one big round robin. The pools
+            are drawn at random when you generate, and you can redraw them from the Club tab
+            until someone scores.
           </p>
         )}
 
