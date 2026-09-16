@@ -54,9 +54,14 @@ export function parseIsoDate(iso) {
   };
 }
 
-/** Singles is singles; both kinds of doubles are just "Doubles" in a name. */
+/**
+ * Singles is singles; both kinds of doubles are just "Doubles" in a name.
+ *
+ * A pooled draw is still singles — the pools are how it is run, not what is
+ * played, and "Sept 13 · Sunday Pools" would tell you less than "Singles".
+ */
 export function playLabel(format) {
-  return format === 'singles' ? 'Singles' : 'Doubles';
+  return format === 'singles' || format === 'singles_pools' ? 'Singles' : 'Doubles';
 }
 
 /** "09:00" → "9:00 am". Null for anything unparseable. Shared with the shares. */

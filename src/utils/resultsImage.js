@@ -10,6 +10,7 @@
 // about who beat whom, only where to put it.
 
 import { SLOT, SHAPES } from './bracket.js';
+import { QUALIFY_PER_POOL } from './pools.js';
 import { bracketTree, seedLabel, setsText } from './bracketTree.js';
 import {
   C, W, PAD, font, newCanvas, toPng, clip, roundRect, card, header, footer, FOOTER_H,
@@ -131,13 +132,36 @@ function layout({ bracket, nodes, rows, url, subtitle }) {
     y += h + 34;
   }
 
-  // --- table ----------------------------------------------------------
-  const table = rows.length > 0
-    ? { x: PAD, y, w: W - PAD * 2, h: 46 + rows.length * TABLE_ROW_H + 14 }
-    : null;
-  if (table) y += table.h + 24;
+  // --- tables ---------------------------------------------------------
+  // One per pool when the session was pooled, otherwise the single table. A
+  // combined table across pools would rank people who never met.
+  const tableFor = (list, label, cut) => ({
+    x: PAD,
+    y,
+    w: W - PAD * 2,
+    h: 46 + list.length * TABLE_ROW_H + 14,
+    rows: list,
+    label,
+    cut,
+  });
 
-  return { banner, boxes, links, table, height: Math.round(y + FOOTER_H(url)) };
+  const tables = [];
+  if (bracket.pooled) {
+    for (const pool of bracket.pools) {
+      const list = (pool.standings ?? []).filter((r) => r.gp > 0);
+      if (list.length === 0) continue;
+      const t = tableFor(list, `Pool ${pool.name}`, QUALIFY_PER_POOL);
+      tables.push(t);
+      y += t.h + 20;
+    }
+  } else if (rows.length > 0) {
+    const t = tableFor(rows, bracket.enabled ? 'Round robin' : 'Final table', 0);
+    tables.push(t);
+    y += t.h + 20;
+  }
+  if (tables.length > 0) y += 4;
+
+  return { banner, boxes, links, tables, height: Math.round(y + FOOTER_H(url)) };
 }
 
 function paint(ctx, plan, { bracket, nodes, rows, title, subtitle, url }) {
@@ -158,7 +182,7 @@ function paint(ctx, plan, { bracket, nodes, rows, title, subtitle, url }) {
   }
 
   for (const box of plan.boxes) drawFixture(ctx, box);
-  if (plan.table) drawTable(ctx, plan.table, { rows, teamPlay: bracket.enabled });
+  for (const t of plan.tables) drawTable(ctx, t);
 
   const note = nodes.length > 0
     ? `${bracket.rr.played} of ${bracket.rr.total} played · ${nodes.length} playoff ${nodes.length === 1 ? 'game' : 'games'}`
@@ -269,9 +293,15 @@ function drawSide(ctx, side, { x, y, w, played }) {
   ctx.fillText(clip(ctx, side.name ?? 'To be decided', x + w - 22 - scoreW - 16 - cursor), cursor, midY);
 }
 
-/** The round-robin table: rank, name, W-L, point difference. */
-function drawTable(ctx, { x, y, w, h }, { rows, teamPlay }) {
-  card(ctx, { x, y, w, h, label: teamPlay ? 'Round robin' : 'Final table' });
+/**
+ * A standings table: rank, name, W-L, point difference.
+ *
+ * `cut` is how many rows went through to the semifinals, marked with a rule
+ * under the last of them. A pooled card is two of these, and without the line
+ * the reader has to be told separately that two go through.
+ */
+function drawTable(ctx, { x, y, w, h, rows, label, cut = 0 }) {
+  card(ctx, { x, y, w, h, label });
 
   const diffX = x + w - 24;
   const recX = diffX - 110;
@@ -282,16 +312,20 @@ function drawTable(ctx, { x, y, w, h }, { rows, teamPlay }) {
     const leader = row.rank === 1;
 
     if (i > 0) {
-      ctx.strokeStyle = C.line;
-      ctx.lineWidth = 1;
+      // The qualifying cut is drawn in the accent, thicker — it is a different
+      // kind of line from the one that merely separates two rows.
+      const isCut = cut > 0 && i === cut;
+      ctx.strokeStyle = isCut ? C.optic : C.line;
+      ctx.lineWidth = isCut ? 3 : 1;
       ctx.beginPath();
       ctx.moveTo(x + 20, ry);
       ctx.lineTo(x + w - 20, ry);
       ctx.stroke();
     }
 
+    const through = cut > 0 && i < cut;
     ctx.font = font(800, 24);
-    ctx.fillStyle = leader ? C.gold : C.textLo;
+    ctx.fillStyle = leader ? C.gold : through ? C.optic : C.textLo;
     ctx.fillText(String(row.rank), x + 24, midY);
 
     ctx.font = font(leader ? 800 : 600, 26);

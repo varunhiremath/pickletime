@@ -13,6 +13,7 @@
 // Pure. A bracket in, plain data out. No DOM, no canvas, no clock.
 
 import { isMultiSet, displayScore, setPairs } from './sets.js';
+import { poolSeedShort } from './pools.js';
 
 /**
  * Which seeds a side is made of.
@@ -62,6 +63,27 @@ export function bracketTree({ bracket, nameOf } = {}) {
   const name = nameOf ?? ((ids) => (ids ?? []).join(' & '));
   const standings = bracket.standings ?? [];
 
+  /**
+   * How a side is seeded, in the terms the session was actually played in.
+   *
+   * Pooled, that is "A1" and "B2" — where somebody finished in their own pool,
+   * which is the thing they did. The combined-table rank a pooled session also
+   * has would be a comparison between people who never met.
+   */
+  const seedsFor = (ids) => {
+    if (bracket.pooled) {
+      const labels = [];
+      for (const q of bracket.qualifiers ?? []) {
+        if ((q.playerIds ?? [q.id]).some((id) => (ids ?? []).includes(id))) {
+          const short = poolSeedShort(q);
+          if (short && !labels.includes(short)) labels.push(short);
+        }
+      }
+      if (labels.length > 0) return labels;
+    }
+    return seedsOf(ids, standings);
+  };
+
   return (bracket.matches ?? []).map((m) => {
     // A set match is reported by sets won — "2–1" — with the set scores
     // alongside, which is how a set result is written. See utils/sets.js.
@@ -70,7 +92,7 @@ export function bracketTree({ bracket, nameOf } = {}) {
     const side = (ids, score) => ({
       ids: ids ?? [],
       name: ids?.length ? name(ids) : null,
-      seeds: seedsOf(ids, standings),
+      seeds: seedsFor(ids),
       score,
       // A side with no opponent yet has not won anything, whatever the scores
       // happen to say.

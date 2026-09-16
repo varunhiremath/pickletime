@@ -11,9 +11,15 @@ import {
   circleMethod,
   isTeamFormat,
   playoffShape,
+  playoffShapesFor,
+  resolvePlayoffShape,
   rebuildPlayoffs,
+  generatePools,
+  isSinglesFormat,
+  POOL_COUNT,
 } from './schedule.js';
 import { STAGE, SLOT, SHAPES, isRoundRobin, knockoutGames } from './bracket.js';
+import { poolsOf } from './pools.js';
 
 const players = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
 const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -536,5 +542,156 @@ describe('rebuildPlayoffs', () => {
 
   it('returns nothing when there is no round robin to follow', () => {
     expect(rebuildPlayoffs({ games: [], shape: SHAPES.KNOCKOUT })).toEqual([]);
+  });
+});
+
+describe('generatePools', () => {
+  const field = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+  const poolsIn = (games) => poolsOf(games);
+
+  it('refuses a field too small to split', () => {
+    expect(generatePools(field(7))).toEqual([]);
+    expect(generatePools(field(4))).toEqual([]);
+    expect(generatePools([])).toEqual([]);
+  });
+
+  it('splits eight players into two pools of four', () => {
+    const games = generatePools(field(8), { seed: 7 });
+    const pools = poolsIn(games);
+    expect(pools).toHaveLength(POOL_COUNT);
+    expect(pools.map((p) => p.ids.length).sort()).toEqual([4, 4]);
+  });
+
+  it('plays a complete round robin inside each pool and never across them', () => {
+    const games = generatePools(field(8), { seed: 3 });
+    const pools = poolsIn(games);
+    const poolOf = new Map();
+    pools.forEach((p) => p.ids.forEach((id) => poolOf.set(id, p.name)));
+
+    // Nobody ever meets the other pool.
+    for (const g of games) {
+      expect(poolOf.get(g.teamA[0])).toBe(poolOf.get(g.teamB[0]));
+    }
+
+    // And inside a pool, everyone meets everyone exactly once.
+    for (const p of pools) {
+      const n = p.ids.length;
+      const inPool = games.filter((g) => p.ids.includes(g.teamA[0]));
+      expect(inPool).toHaveLength((n * (n - 1)) / 2);
+      const seen = new Set(inPool.map((g) => [g.teamA[0], g.teamB[0]].sort().join('|')));
+      expect(seen.size).toBe(inPool.length);
+    }
+  });
+
+  it('is 12 games for 8 players, against 28 for one big round robin', () => {
+    expect(generatePools(field(8), { seed: 1 })).toHaveLength(12);
+    expect(generateSingles(field(8))).toHaveLength(28);
+  });
+
+  it('saves even more on a big field', () => {
+    // 16 players: 2 x 28 = 56, versus 120 in a single round robin.
+    expect(generatePools(field(16), { seed: 1 })).toHaveLength(56);
+    expect(generateSingles(field(16))).toHaveLength(120);
+  });
+
+  it('splits an odd field 5/4 and still plays both pools out', () => {
+    const games = generatePools(field(9), { seed: 11 });
+    const pools = poolsIn(games);
+    expect(pools.map((p) => p.ids.length).sort()).toEqual([4, 5]);
+    // 10 + 6
+    expect(games).toHaveLength(16);
+  });
+
+  it('runs both pools in the same rounds rather than one after the other', () => {
+    const games = generatePools(field(8), { seed: 5 });
+    const pools = poolsIn(games);
+    const poolOf = new Map();
+    pools.forEach((p) => p.ids.forEach((id) => poolOf.set(id, p.name)));
+    const round1 = games.filter((g) => g.round === 1);
+    expect(new Set(round1.map((g) => poolOf.get(g.teamA[0]))).size).toBe(2);
+  });
+
+  it('counts a player waiting on the other pool as sitting out', () => {
+    const ids = field(9);
+    const games = generatePools(ids, { seed: 2 });
+    for (const round of new Set(games.map((g) => g.round))) {
+      const inRound = games.filter((g) => g.round === round);
+      const playing = new Set(inRound.flatMap((g) => [g.teamA[0], g.teamB[0]]));
+      const expected = ids.filter((id) => !playing.has(id)).sort();
+      for (const g of inRound) expect(g.byes.slice().sort()).toEqual(expected);
+    }
+  });
+
+  it('numbers games from 1 with no gaps', () => {
+    const games = generatePools(field(10), { seed: 4 });
+    expect(games.map((g) => g.ordinal)).toEqual(games.map((_, i) => i + 1));
+  });
+
+  it('is reproducible from its seed, and a new seed redraws the pools', () => {
+    const a = generatePools(field(10), { seed: 42 });
+    const b = generatePools(field(10), { seed: 42 });
+    expect(a).toEqual(b);
+    const c = generatePools(field(10), { seed: 43 });
+    expect(JSON.stringify(c)).not.toBe(JSON.stringify(a));
+  });
+
+  it('leaves every game unplayed and in the round-robin stage', () => {
+    for (const g of generatePools(field(8), { seed: 1 })) {
+      expect(g.played).toBe(false);
+      expect(g.scoreA).toBeNull();
+      expect(g.stage).toBe('rr');
+      expect(g.slot).toBeNull();
+    }
+  });
+});
+
+describe('the pooled format end to end', () => {
+  const field = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+
+  it('is a singles format, ranked as individuals', () => {
+    expect(isSinglesFormat(FORMATS.POOLS)).toBe(true);
+    expect(isSinglesFormat(FORMATS.SINGLES)).toBe(true);
+    expect(isSinglesFormat(FORMATS.PAIRS)).toBe(false);
+    expect(isTeamFormat(FORMATS.POOLS)).toBe(false);
+  });
+
+  it('needs eight to run a finish', () => {
+    expect(canRunPlayoffs({ format: FORMATS.POOLS, playerCount: 8 })).toBe(true);
+    expect(canRunPlayoffs({ format: FORMATS.POOLS, playerCount: 7 })).toBe(false);
+  });
+
+  it('offers the knockout only — the Page system is a single-table idea', () => {
+    expect(playoffShapesFor(FORMATS.POOLS)).toEqual([SHAPES.KNOCKOUT]);
+    expect(playoffShape(FORMATS.POOLS)).toBe(SHAPES.KNOCKOUT);
+    expect(resolvePlayoffShape(FORMATS.POOLS, SHAPES.PAGE)).toBe(SHAPES.KNOCKOUT);
+  });
+
+  it('appends the semifinals, third-place game and final', () => {
+    const games = generateSchedule({
+      format: FORMATS.POOLS,
+      playerIds: field(8),
+      seed: 9,
+      playoffs: true,
+      courts: 2,
+    });
+    expect(games).toHaveLength(12 + 4);
+    const ko = games.filter((g) => g.stage !== 'rr');
+    expect(ko.map((g) => g.slot)).toEqual(['sf1', 'sf2', 'bronze', 'final']);
+  });
+
+  it('can run the pools with no finish at all', () => {
+    const games = generateSchedule({
+      format: FORMATS.POOLS,
+      playerIds: field(8),
+      seed: 9,
+      playoffs: false,
+    });
+    expect(games).toHaveLength(12);
+  });
+
+  it('reports the smaller pool\'s game count per player', () => {
+    expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 8 })).toBe(3);
+    expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 9 })).toBe(3);
+    expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 16 })).toBe(7);
   });
 });

@@ -10,6 +10,7 @@ import { resolveBracket } from './bracket.js';
 import { bracketTreeLines } from './bracketTree.js';
 import { sessionEntrants } from './entrants.js';
 import { nameCarriesDate, nameCarriesTime } from './sessionName.js';
+import { QUALIFY_PER_POOL } from './pools.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -54,6 +55,7 @@ export function formatSessionTime(value) {
 /** How a format is named wherever it is shown. Exported so there is one list. */
 export const FORMAT_LABEL = {
   singles: 'Singles round robin',
+  singles_pools: 'Singles · Two pools',
   doubles_americano: 'Doubles · Americano',
   doubles_pairs: 'Doubles · Fixed pairs',
 };
@@ -285,11 +287,26 @@ export function buildResultsShare({ session, games = [], members = [], url } = {
   if (tree.length > 0) lines.push('', ...tree);
 
   // --- the table ----------------------------------------------------
-  const table = bracket.standings.filter((r) => r.gp > 0);
-  if (table.length > 0) {
-    lines.push('', bracket.enabled ? 'Round robin' : 'Final table');
-    for (const row of table) {
-      lines.push(`${row.rank}. ${row.name} — ${record(row)}`);
+  // One table per pool when the session was pooled. A combined table would rank
+  // people who never met, which is the comparison pool play exists to avoid.
+  if (bracket.pooled) {
+    for (const pool of bracket.pools) {
+      const table = pool.standings.filter((r) => r.gp > 0);
+      if (table.length === 0) continue;
+      lines.push('', `Pool ${pool.name}`);
+      for (const row of table) {
+        // A marker beats a legend nobody reads: ✅ is "went through".
+        const through = row.rank <= QUALIFY_PER_POOL ? ' ✅' : '';
+        lines.push(`${row.rank}. ${row.name} — ${record(row)}${through}`);
+      }
+    }
+  } else {
+    const table = bracket.standings.filter((r) => r.gp > 0);
+    if (table.length > 0) {
+      lines.push('', bracket.enabled ? 'Round robin' : 'Final table');
+      for (const row of table) {
+        lines.push(`${row.rank}. ${row.name} — ${record(row)}`);
+      }
     }
   }
 

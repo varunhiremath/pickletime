@@ -9,6 +9,7 @@ import Podium from '../components/bracket/Podium.jsx';
 import useSessionStore from '../store/sessionStore.js';
 import Button from '../components/ui/Button.jsx';
 import { resolveBracket, roundRobinGames } from '../utils/bracket.js';
+import { QUALIFY_PER_POOL } from '../utils/pools.js';
 import { buildResultsShare, buildResultsCaption, sessionWhen } from '../utils/sessionShare.js';
 import { renderResultsPng } from '../utils/resultsImage.js';
 import { shareText, shareFile } from '../utils/share.js';
@@ -50,6 +51,125 @@ function Row({ teamPlay, row, children, className, style }) {
     <Link to={`/players/${row.id}`} className={className} style={style}>
       {children}
     </Link>
+  );
+}
+
+
+/**
+ * One standings table.
+ *
+ * Module level, not declared inside the page: a component defined in a render
+ * body is a new type on every render, so React remounts its subtree — and a
+ * remounted FlipList loses the animation it exists for. That matters more here
+ * than usual, because a pooled session renders two of these side by side.
+ *
+ * `cut` draws the qualifying line: rows above it go through to the semifinals.
+ */
+function Table({ rows, members, teamPlay, numWidth, flashing, cut = 0, sticky = true }) {
+  return (
+    <>
+      <div
+        className={`${sticky ? 'sticky top-0 z-10' : ''} flex items-center gap-2 py-2`}
+        style={{ background: 'var(--bg-deep)' }}
+      >
+        <span className="w-6 shrink-0" />
+        <span
+          className="flex-1 font-sans text-[11px] font-bold uppercase tracking-wider"
+          style={{ color: 'var(--text-lo)' }}
+        >
+          {teamPlay ? 'Team' : 'Player'}
+        </span>
+        {COLUMNS.map((c) => (
+          <span
+            key={c.key}
+            className={`${numWidth} shrink-0 text-right font-sans text-[11px] font-bold uppercase`}
+            style={{ color: 'var(--text-lo)' }}
+          >
+            {c.label}
+          </span>
+        ))}
+        <span
+          className="w-10 shrink-0 text-right font-sans text-[11px] font-bold uppercase"
+          style={{ color: 'var(--text-lo)' }}
+        >
+          Diff
+        </span>
+      </div>
+
+      <FlipList className="flex flex-col gap-1.5">
+        {rows.map((row, i) => {
+          const isFirst = row.rank === 1 && row.gp > 0;
+          // Through to the semifinals. Marked on the row rather than with a
+          // line between rows, because FlipList reorders them as scores land
+          // and a separator would slide around with nothing to attach to.
+          const through = cut > 0 && i < cut && row.gp > 0;
+          return (
+            <Row
+              key={row.id}
+              teamPlay={teamPlay}
+              row={row}
+              className={`flex items-center gap-2 ${flashing.has(row.id) ? 'a-flash' : ''}`}
+              style={{
+                padding: '10px 12px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--bg-surface)',
+                border: `1px solid ${
+                  isFirst ? 'var(--gold)' : through ? 'var(--optic)' : 'var(--line)'
+                }`,
+              }}
+            >
+              <span
+                className="num w-6 shrink-0 text-center font-display text-sm font-extrabold"
+                style={{ color: isFirst ? 'var(--gold-ink)' : 'var(--text-lo)' }}
+              >
+                {row.rank}
+              </span>
+
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <Faces ids={row.playerIds ?? [row.id]} members={members} size={24} />
+                <span className="min-w-0">
+                  <span
+                    className="block truncate font-sans text-sm font-semibold"
+                    style={{ color: 'var(--text-hi)' }}
+                  >
+                    {row.name}
+                  </span>
+                  <StreakBadge streak={row.streak} />
+                </span>
+              </span>
+
+              {COLUMNS.map((c) => (
+                <span
+                  key={c.key}
+                  className={`num ${numWidth} shrink-0 text-right font-display text-sm`}
+                  style={{
+                    color: c.key === 'w' ? 'var(--text-hi)' : 'var(--text-lo)',
+                    fontWeight: c.key === 'w' ? 700 : 500,
+                  }}
+                >
+                  {row[c.key]}
+                </span>
+              ))}
+
+              <span
+                className="num w-10 shrink-0 text-right font-display text-sm font-bold"
+                style={{
+                  color:
+                    row.diff > 0
+                      ? 'var(--optic-ink)'
+                      : row.diff < 0
+                        ? 'var(--clay)'
+                        : 'var(--text-lo)',
+                }}
+              >
+                {row.diff > 0 ? '+' : ''}
+                {row.diff}
+              </span>
+            </Row>
+          );
+        })}
+      </FlipList>
+    </>
   );
 }
 
@@ -196,92 +316,50 @@ export default function StandingsPage() {
         </EmptyState>
       ) : (
         <div className="px-4">
-          {/* Column header — sticky so it survives a long roster. */}
-          <div
-            className="sticky top-0 z-10 flex items-center gap-2 py-2"
-            style={{ background: 'var(--bg-deep)' }}
-          >
-            <span className="w-6 shrink-0" />
-            <span className="flex-1 font-sans text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-lo)' }}>
-              {teamPlay ? 'Team' : 'Player'}
-            </span>
-            {COLUMNS.map((c) => (
-              <span
-                key={c.key}
-                className={`${numWidth} shrink-0 text-right font-sans text-[11px] font-bold uppercase`}
-                style={{ color: 'var(--text-lo)' }}
-              >
-                {c.label}
-              </span>
-            ))}
-            <span className="w-10 shrink-0 text-right font-sans text-[11px] font-bold uppercase" style={{ color: 'var(--text-lo)' }}>
-              Diff
-            </span>
-          </div>
-
-          <FlipList className="flex flex-col gap-1.5">
-            {rows.map((row) => {
-              const isFirst = row.rank === 1 && row.gp > 0;
-              return (
-                <Row
-                  key={row.id}
-                  teamPlay={teamPlay}
-                  row={row}
-                  className={`flex items-center gap-2 ${flashing.has(row.id) ? 'a-flash' : ''}`}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-surface)',
-                    border: `1px solid ${isFirst ? 'var(--gold)' : 'var(--line)'}`,
-                  }}
-                >
-                  <span
-                    className="num w-6 shrink-0 text-center font-display text-sm font-extrabold"
-                    style={{ color: isFirst ? 'var(--gold-ink)' : 'var(--text-lo)' }}
-                  >
-                    {row.rank}
-                  </span>
-
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <Faces ids={row.playerIds ?? [row.id]} members={members} size={24} />
-                    <span className="min-w-0">
-                      <span
-                        className="block truncate font-sans text-sm font-semibold"
-                        style={{ color: 'var(--text-hi)' }}
-                      >
-                        {row.name}
-                      </span>
-                      <StreakBadge streak={row.streak} />
-                    </span>
-                  </span>
-
-                  {COLUMNS.map((c) => (
-                    <span
-                      key={c.key}
-                      className={`num ${numWidth} shrink-0 text-right font-display text-sm`}
-                      style={{
-                        color: c.key === 'w' ? 'var(--text-hi)' : 'var(--text-lo)',
-                        fontWeight: c.key === 'w' ? 700 : 500,
-                      }}
+          {/* Two tables when the session is pooled, one otherwise. A combined
+              table across pools would rank people who never met, by records
+              built against different opposition — exactly the comparison pool
+              play exists to avoid. */}
+          {bracket.pooled ? (
+            <div className="flex flex-col gap-5">
+              {bracket.pools.map((pool) => (
+                <section key={pool.name} className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <h2
+                      className="font-display text-base font-extrabold"
+                      style={{ color: 'var(--text-hi)' }}
                     >
-                      {row[c.key]}
+                      Pool {pool.name}
+                    </h2>
+                    <span className="h-px flex-1" style={{ background: 'var(--line)' }} />
+                    <span
+                      className="font-sans text-[11px] font-bold uppercase tracking-wider"
+                      style={{ color: 'var(--text-lo)' }}
+                    >
+                      Top {QUALIFY_PER_POOL} go through
                     </span>
-                  ))}
-
-                  <span
-                    className="num w-10 shrink-0 text-right font-display text-sm font-bold"
-                    style={{
-                      color:
-                        row.diff > 0 ? 'var(--optic-ink)' : row.diff < 0 ? 'var(--clay)' : 'var(--text-lo)',
-                    }}
-                  >
-                    {row.diff > 0 ? '+' : ''}
-                    {row.diff}
-                  </span>
-                </Row>
-              );
-            })}
-          </FlipList>
+                  </div>
+                  <Table
+                    rows={pool.standings}
+                    members={members}
+                    teamPlay={teamPlay}
+                    numWidth={numWidth}
+                    flashing={flashing}
+                    cut={QUALIFY_PER_POOL}
+                    sticky={false}
+                  />
+                </section>
+              ))}
+            </div>
+          ) : (
+            <Table
+              rows={rows}
+              members={members}
+              teamPlay={teamPlay}
+              numWidth={numWidth}
+              flashing={flashing}
+            />
+          )}
 
           <div className="mt-5 flex flex-col items-center gap-3">
             <Button variant="primary" full onClick={shareResults}>
@@ -300,7 +378,11 @@ export default function StandingsPage() {
           </div>
 
           <p className="mt-4 text-center font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-            {bracket.enabled ? 'Round-robin table — this is what seeds the playoffs. ' : ''}
+            {bracket.pooled
+              ? 'Pool tables — the top two of each cross over into the semifinals. '
+              : bracket.enabled
+                ? 'Round-robin table — this is what seeds the playoffs. '
+                : ''}
             Ranked by wins, then point difference · tap a player for full stats
           </p>
         </div>

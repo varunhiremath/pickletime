@@ -46,6 +46,7 @@ when someone deep-links to Courtside.
 | `sessionShare.js` | `formatSessionDate`, `formatSessionTime`, `formatLabel`, `sessionWhen`, `announcement`, `buildSessionShare`, `buildResultsShare` — what the announcement and the results say, as data and as text. |
 | `sessionName.js` | `parseIsoDate`, `playLabel`, `formatClockTime`, `defaultSessionName`, `nameCarriesDate`, `nameCarriesTime` — what a session is called when nobody types a name. |
 | `sessionState.js` | `unplayedCount`, `isSessionOver`, `endedEarly`, `sessionOutcome` — whether a session is still going. |
+| `pools.js` | `POOL_NAMES`, `MIN_POOL_FIELD`, `QUALIFY_PER_POOL`, `dealIntoPools`, `poolsOf`, `isPooled`, `seedFromPools`, `poolSeedLabel`, `poolSeedShort` — splitting a big field into groups. |
 | `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `isDecided`, `displayScore`, `setsLine`, `normaliseSets`, `setsStatus` — matches played as sets. `normaliseSets` returns `{ ok, decided }`: **`ok` means worth saving, `decided` means somebody has won two sets**, and only `decided` makes a match played. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -314,6 +315,38 @@ this job: it refuses to run at all once anything is scored, and by the time anyb
 wants a different finish, half the round robin has been played. The UI is
 `club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
 Playoffs heading on Matches, which is where people look for it.
+
+## Pools
+
+`singles_pools` splits the field into two pools that each play their own round
+robin, and the top two of each cross over into the semifinals. Sixteen players
+in one round robin is 120 games; two pools of eight is 56, and every one of them
+decides something.
+
+**Pools are derived, not stored.** A pool is a *connected component of the
+fixture graph* — pool play never crosses pools, so who has a fixture against
+whom already says who is in which pool. No column, no migration beyond widening
+the `format` constraint, and no way for a stored pool to disagree with the games
+it describes. `poolsOf()` reads them back, ordered by earliest fixture so the
+pool holding game 1 is always Pool A on every phone.
+
+**The bracket needed no new shape.** `seedFromPools()` returns the four
+qualifiers as **[A1, B1, A2, B2]**, and the existing `BRACKET_SLOTS` seeding of
+"1 plays 4, 2 plays 3" then produces **A1 v B2** and **B1 v A2** — every
+semifinal between pools, and the two pool winners able to meet only in the
+final. That falls out of the slot table rather than needing a fifth entry in
+`SHAPES`.
+
+> The Page system is deliberately **not** offered for pools. It is a single-table
+> idea — it gives the top two seeds a second chance at the grand final — and "the
+> top two" does not mean anything across two tables that never met.
+
+Everything downstream asks `bracket.pooled`: Standings renders one table per pool
+with the qualifying cut marked, the bracket's seed chips read `A1` / `B2` rather
+than `1` / `4`, the fixture sources read "Pool A winner vs Pool B runner-up", and
+both shares print the two pool tables instead of one combined one. A combined
+table across pools would rank people who never met, by records built against
+different opposition — exactly the comparison pool play exists to avoid.
 
 ## The Matches tabs
 

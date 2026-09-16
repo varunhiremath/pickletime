@@ -4,6 +4,7 @@ import MatchCard from '../scoreboard/MatchCard.jsx';
 import Podium from './Podium.jsx';
 import { Faces } from '../scoreboard/PlayerChip.jsx';
 import { BRACKET_SIZE, SHAPES } from '../../utils/bracket.js';
+import { poolSeedShort, QUALIFY_PER_POOL } from '../../utils/pools.js';
 
 function Heading({ children }) {
   return (
@@ -106,9 +107,19 @@ export default function BracketSection({ bracket, members, session, onSubmit, on
       )}
 
       {!rr.complete ? (
-        <LockedNotice rr={rr} standings={standings} members={members} />
+        <LockedNotice
+          rr={rr}
+          standings={standings}
+          members={members}
+          pools={bracket.pools}
+        />
       ) : (
-        <SeedRow qualifiers={qualifiers} standings={standings} members={members} />
+        <SeedRow
+          qualifiers={qualifiers}
+          standings={standings}
+          members={members}
+          pooled={bracket.pooled}
+        />
       )}
 
       {tiedForLastSpot && (
@@ -118,9 +129,10 @@ export default function BracketSection({ bracket, members, session, onSubmit, on
         >
           <AlertTriangle size={13} className="mt-px shrink-0" />
           <span>
-            4th and 5th finished exactly level on wins, point difference and points scored — the
-            last playoff spot came down to name order. Worth a play-off game if you'd rather settle
-            it on court.
+            {bracket.pooled
+              ? `${QUALIFY_PER_POOL}nd and 3rd in a pool finished exactly level on wins, point difference and points scored — the last place in the semifinals came down to name order.`
+              : '4th and 5th finished exactly level on wins, point difference and points scored — the last playoff spot came down to name order.'}{' '}
+            Worth a play-off game if you'd rather settle it on court.
           </span>
         </p>
       )}
@@ -138,9 +150,20 @@ export default function BracketSection({ bracket, members, session, onSubmit, on
 }
 
 /** Before the round robin is finished: how far off it is, and who is in line. */
-function LockedNotice({ rr, standings, members }) {
+function LockedNotice({ rr, standings, members, pools = [] }) {
   const pct = rr.total === 0 ? 0 : Math.round((rr.played / rr.total) * 100);
-  const contenders = standings.slice(0, BRACKET_SIZE);
+  const pooled = pools.length > 1;
+  // In pools the interesting list is the top two of each, not the top four
+  // overall — a table across pools compares people who never met.
+  const contenders = pooled
+    ? pools.flatMap((p) =>
+        p.standings.slice(0, QUALIFY_PER_POOL).map((row, i) => ({
+          ...row,
+          pool: p.name,
+          poolRank: i + 1,
+        }))
+      )
+    : standings.slice(0, BRACKET_SIZE);
   const anyPlayed = rr.played > 0;
 
   return (
@@ -186,11 +209,17 @@ function LockedNotice({ rr, standings, members }) {
             className="font-sans text-[11px] font-bold uppercase tracking-wider"
             style={{ color: 'var(--text-lo)' }}
           >
-            In the top four as it stands
+            {pooled ? 'Going through as it stands' : 'In the top four as it stands'}
           </span>
           <div className="flex flex-wrap gap-1.5">
             {contenders.map((row, i) => (
-              <SeedChip key={row.id} row={row} seed={i + 1} members={members} provisional />
+              <SeedChip
+                key={row.id}
+                row={row}
+                seed={poolSeedShort(row) ?? i + 1}
+                members={members}
+                provisional
+              />
             ))}
           </div>
         </>
@@ -200,22 +229,39 @@ function LockedNotice({ rr, standings, members }) {
 }
 
 /** Once the round robin is done: the final seeding, and who missed out. */
-function SeedRow({ qualifiers, standings, members }) {
-  const missed = standings.slice(BRACKET_SIZE);
+function SeedRow({ qualifiers, standings, members, pooled = false }) {
+  const through = new Set(qualifiers.map((q) => q.id));
+  const missed = pooled
+    ? standings.filter((row) => !through.has(row.id))
+    : standings.slice(BRACKET_SIZE);
   return (
     <div className="flex flex-col gap-2">
       <span
         className="font-sans text-[11px] font-bold uppercase tracking-wider"
         style={{ color: 'var(--text-lo)' }}
       >
-        Seeded from the round robin
+        {pooled ? 'Through from the pools' : 'Seeded from the round robin'}
       </span>
       <div className="flex flex-wrap gap-1.5">
+        {/* "A1" and "B2" rather than 1 and 4: in a pooled draw the seed number
+            is an implementation detail of the bracket, and where somebody
+            finished in their own pool is the thing they actually did. */}
         {qualifiers.map((row, i) => (
-          <SeedChip key={row.id} row={row} seed={i + 1} members={members} />
+          <SeedChip
+            key={row.id}
+            row={row}
+            seed={poolSeedShort(row) ?? i + 1}
+            members={members}
+          />
         ))}
         {missed.map((row, i) => (
-          <SeedChip key={row.id} row={row} seed={BRACKET_SIZE + i + 1} members={members} out />
+          <SeedChip
+            key={row.id}
+            row={row}
+            seed={pooled ? '—' : BRACKET_SIZE + i + 1}
+            members={members}
+            out
+          />
         ))}
       </div>
     </div>
@@ -235,8 +281,10 @@ function SeedChip({ row, seed, members, out = false, provisional = false }) {
       }}
       title={`${row.w}W ${row.l}L · ${row.diff > 0 ? '+' : ''}${row.diff}`}
     >
+      {/* Wide enough for "A1" but still round for a single digit — a pooled
+          seed is two characters and was clipping. */}
       <span
-        className="num flex h-5 w-5 items-center justify-center font-display text-[11px] font-extrabold"
+        className="num flex h-5 min-w-[20px] items-center justify-center px-1 font-display text-[11px] font-extrabold"
         style={{
           borderRadius: 'var(--radius-full)',
           background: out ? 'var(--bg-raised)' : 'var(--gold)',
