@@ -69,6 +69,15 @@ affected. Re-running `schema.sql` does the same job. There is deliberately no
 `pool` column — pool play never crosses pools, so the fixtures already say who
 is in which pool. See `src/utils/pools.js`.
 
+Stepping a player back from the roster adds
+`supabase/migrate-roster-active.sql`: an `active boolean not null default true`
+column on `members`. Without it, "not playing" fails with "column active does
+not exist" and every member reads as active, which is the old behaviour rather
+than a broken one. Defaulting to true means every existing member is unchanged,
+and because it uses `add column if not exists`, re-running it never resets
+somebody who has already stepped back. Re-running `schema.sql` does the same
+job. Admins already have unrestricted UPDATE on `members`, so no policy change.
+
 `supabase/backfill-session-names.sql` is **not** a migration — it is a one-off.
 Sessions name themselves from their date and format now, but ones created
 before that are still called "Session". Running it once gives them the names

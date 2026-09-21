@@ -49,6 +49,9 @@ export function buildPublishPlan(local, { clubId, adminMemberId, newId } = {}) {
       // NULL — so carrying the role across is safe, and dropping it would
       // silently undo a decision the club made before publishing.
       role: m.role === 'admin' ? 'admin' : 'player',
+      // Same reasoning as the role: whatever the roster already said. Somebody
+      // stepped back before publishing should still be stepped back after.
+      active: m.active !== false,
       colorIndex: m.colorIndex ?? outMembers.length % 8,
       createdAt: m.createdAt,
     });
