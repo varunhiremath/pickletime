@@ -6,6 +6,7 @@ import { aggregate, isDecided } from '../utils/sets.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode } from '../utils/inviteCode.js';
+import { canDeactivate } from '../utils/roster.js';
 import {
   readLegacyState,
   hasImportableData,
@@ -127,6 +128,7 @@ export function createLocalBackend() {
         name: adminName?.trim() || 'Me',
         role: ROLES.ADMIN,
         userId: null,
+        active: true,
         colorIndex: 0,
         createdAt: now(),
       };
@@ -160,12 +162,36 @@ export function createLocalBackend() {
         name: name?.trim() || `Player ${count + 1}`,
         role: ROLES.PLAYER,
         userId: null,
+        active: true,
         colorIndex: count % 8,
         createdAt: now(),
       };
       await db.members.put(member);
       emit({ type: 'members' });
       return member;
+    },
+
+    /**
+     * Step somebody back from the roster, or bring them back.
+     *
+     * Not a delete: every game they played and every score on it stays, along
+     * with the sessions they were part of — `player_ids` is stored per session,
+     * so no past session notices. They are simply not offered for the next one.
+     */
+    async setMemberActive(memberId, active) {
+      const member = await db.members.get(memberId);
+      if (!member) throw new Error('That player is not on the roster.');
+
+      if (!active) {
+        const roster = await db.members.where('clubId').equals(member.clubId).toArray();
+        if (!canDeactivate(member, roster)) {
+          throw new Error('A club needs at least two active players.');
+        }
+      }
+
+      await db.members.update(memberId, { active: Boolean(active) });
+      emit({ type: 'members' });
+      return db.members.get(memberId);
     },
 
     async renameMember(memberId, name) {

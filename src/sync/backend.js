@@ -23,6 +23,10 @@
 //   writes
 //     createClub({ name, adminName })  -> { club, member }
 //     addMember({ name })              -> member
+//     setMemberActive(memberId, active) -> member
+//       Step somebody back from the roster, or bring them back. NOT a delete:
+//       every game and score they were part of stays exactly as it is, and only
+//       new sessions are affected. See utils/roster.js.
 //     setMemberRole(memberId, role)    -> member
 //       'admin' | 'player'. Admins can start sessions, so this is how the club
 //       keeps playing when whoever created it isn't there. Refuses to demote the

@@ -7,6 +7,7 @@ import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
 import { generateInviteCode, normalizeInviteCode } from '../utils/inviteCode.js';
 import { buildPublishPlan } from '../utils/publishPlan.js';
+import { canDeactivate } from '../utils/roster.js';
 import {
   clubFromRow, memberFromRow, sessionFromRow, sessionToRow,
   gameFromRow, gameToRow, inviteFromRow, scoreEventFromRow,
@@ -152,7 +153,13 @@ export function createSupabaseBackend() {
 
   // The mirror stores camelCase; the fallback path above expects row shape.
   function toRowish(m) {
-    return { ...m, club_id: m.clubId, user_id: m.userId, color_index: m.colorIndex };
+    return {
+      ...m,
+      club_id: m.clubId,
+      user_id: m.userId,
+      color_index: m.colorIndex,
+      active: m.active !== false,
+    };
   }
 
   /** Identity reconstructed from the local mirror when the server is unreachable. */
@@ -388,6 +395,30 @@ export function createSupabaseBackend() {
             role: ROLES.PLAYER,
             color_index: count % 8,
           })
+          .select()
+          .single()
+      );
+      const member = memberFromRow(row);
+      await db.members.put(member);
+      emit({ type: 'members' });
+      return member;
+    },
+
+    /** Step somebody back from the roster, or bring them back. See localBackend. */
+    async setMemberActive(memberId, active) {
+      if (!active) {
+        const roster = await this.listMembers();
+        const member = roster.find((m) => m.id === memberId);
+        if (!member) throw new Error('That player is not on the roster.');
+        if (!canDeactivate(member, roster)) {
+          throw new Error('A club needs at least two active players.');
+        }
+      }
+      const row = unwrap(
+        await supabase
+          .from('members')
+          .update({ active: Boolean(active) })
+          .eq('id', memberId)
           .select()
           .single()
       );
@@ -732,6 +763,7 @@ export function createSupabaseBackend() {
               club_id: m.clubId,
               name: m.name,
               role: m.role,
+              active: m.active !== false,
               color_index: m.colorIndex,
             }))
           )

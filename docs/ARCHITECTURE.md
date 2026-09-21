@@ -47,6 +47,7 @@ when someone deep-links to Courtside.
 | `sessionName.js` | `parseIsoDate`, `playLabel`, `formatClockTime`, `defaultSessionName`, `nameCarriesDate`, `nameCarriesTime` — what a session is called when nobody types a name. |
 | `sessionState.js` | `unplayedCount`, `isSessionOver`, `endedEarly`, `sessionOutcome` — whether a session is still going. |
 | `pools.js` | `POOL_NAMES`, `MIN_POOL_FIELD`, `QUALIFY_PER_POOL`, `dealIntoPools`, `poolsOf`, `isPooled`, `seedFromPools`, `poolSeedLabel`, `poolSeedShort` — splitting a big field into groups. |
+| `roster.js` | `isActive`, `activeMembers`, `inactiveMembers`, `splitRoster`, `canDeactivate`, `deactivateBlockedReason` — who is still playing. |
 | `sets.js` | `BEST_OF`, `isMultiSet`, `setPairs`, `setsWon`, `aggregate`, `winnerOf`, `isDecided`, `displayScore`, `setsLine`, `normaliseSets`, `setsStatus` — matches played as sets. `normaliseSets` returns `{ ok, decided }`: **`ok` means worth saving, `decided` means somebody has won two sets**, and only `decided` makes a match played. |
 | `standings.js` | `computeStandings`, `currentStreak`, `rankHistory`, `headToHead`, `partnerRecords`, `sessionProgress`. |
 | `inviteCode.js` | `generateInviteCode`, `normalizeInviteCode`, `hashInviteCode` — Crockford base32, ambiguous glyphs excluded. |
@@ -315,6 +316,35 @@ this job: it refuses to run at all once anything is scored, and by the time anyb
 wants a different finish, half the round robin has been played. The UI is
 `club/PlayoffModal.jsx`, reachable from ClubPage ("Change the finish") and from the
 Playoffs heading on Matches, which is where people look for it.
+
+## Who is still playing
+
+Deleting a member was the only way to get somebody off the roster, and deleting
+takes their fixtures and **every score on them** with it — the standings of a
+session played three months ago quietly change. Right for a name typed by
+mistake; completely wrong for somebody who moved away.
+
+So `members.active` (default true). Inactive is a **roster state and nothing
+more**: they keep every game, every result, their player page, and the sessions
+they were part of. `sessions.player_ids` is stored per session, so **no past
+session notices at all** — nothing is recomputed, because nothing was deleted.
+They are simply not offered for the next one.
+
+- Kept separate from `role`, which is about permission rather than
+  participation. An admin away for a season is still an admin — and the last
+  admin is allowed to be an inactive one, setting sessions up without playing.
+- `canDeactivate()` refuses to leave fewer than **two** active players, because
+  a club that cannot field a fixture is not a state worth allowing.
+- `isActive()` treats a **missing** flag as active: every row written before the
+  column existed has no value, and the whole club going inactive on upgrade
+  would be a spectacular way to fail. `memberFromRow` normalises it the same way.
+- The new-session sheet ticks only active members, and offers
+  *"+ N not playing at the moment"* so a visitor back for one weekend can be
+  added without an admin reactivating and then re-deactivating them around the
+  session.
+
+Delete still exists for a genuine mistake, and its confirm now points at the
+gentler option first.
 
 ## Pools
 

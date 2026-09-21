@@ -31,6 +31,9 @@ create table if not exists public.members (
   -- NULL until the person claims their invite on a device.
   user_id      uuid references auth.users(id) on delete set null,
   role         text not null default 'player' check (role in ('admin', 'player')),
+  -- Still playing? Inactive members keep every game and result they ever had —
+  -- they are simply not offered for a new session. See src/utils/roster.js.
+  active       boolean not null default true,
   color_index  int  not null default 0,
   created_at   timestamptz not null default now(),
   -- One account per club. Repeated NULLs are permitted, so any number of

@@ -16,6 +16,10 @@ export function memberFromRow(r) {
     name: r.name,
     userId: r.user_id ?? null,
     role: r.role,
+    // Missing means active: rows written before the column existed have no
+    // value, and the whole club going inactive on upgrade would be a
+    // spectacular way to fail. See utils/roster.js.
+    active: r.active !== false,
     colorIndex: r.color_index ?? 0,
     createdAt: Date.parse(r.created_at) || 0,
   };

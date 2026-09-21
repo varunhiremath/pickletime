@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy, Flag, RotateCcw } from 'lucide-react';
+import { Plus, Settings, Trash2, Pencil, History, Play, UploadCloud, LogIn, Megaphone, Shuffle, Users, ShieldPlus, ShieldMinus, Trophy, Flag, RotateCcw, UserMinus, UserPlus } from 'lucide-react';
 import {
   buildSessionShare, buildSessionCaption, sessionWhen, formatLabel,
 } from '../utils/sessionShare.js';
@@ -18,7 +18,148 @@ import useSessionStore from '../store/sessionStore.js';
 import { getBackend } from '../sync/backend.js';
 import { isTeamFormat, canRunPlayoffs, FORMATS } from '../utils/schedule.js';
 import { isSessionOver, endedEarly, unplayedCount } from '../utils/sessionState.js';
+import { splitRoster, activeMembers, deactivateBlockedReason } from '../utils/roster.js';
 import { toast, confirmDialog, promptDialog } from '../store/uiStore.js';
+
+
+/**
+ * One roster row.
+ *
+ * Module level, not declared in the page body: a component defined inside a
+ * render is a new type every render, so React remounts its subtree — and the
+ * invite row inside this one holds a "copied" flash and a busy flag that a
+ * remount would throw away.
+ */
+function RosterRow({
+  member, isAdmin, isYou, adminCount, inactive, blockedReason,
+  remote, clubName, appUrl, invite,
+  onRole, onRename, onRemove, onActive, onMint, onRevoke,
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2"
+      style={{
+        padding: '10px 12px',
+        borderRadius: 'var(--radius-md)',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--line)',
+        // Dimmed rather than hidden: they are still on the roster, and every
+        // result they ever had still counts.
+        opacity: inactive ? 0.6 : 1,
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <Avatar member={member} size={30} />
+        <Link to={`/players/${member.id}`} className="min-w-0 flex-1">
+          <span
+            className="block truncate font-sans text-sm font-semibold"
+            style={{ color: 'var(--text-hi)' }}
+          >
+            {member.name}
+          </span>
+          <span className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+            {member.role === 'admin' ? 'Admin' : 'Player'}
+            {isYou ? ' · you' : ''}
+            {inactive ? ' · not playing' : ''}
+          </span>
+        </Link>
+        {isAdmin && (
+          <div className="flex shrink-0 gap-1">
+            {inactive ? (
+              <button
+                onClick={() => onActive(member, true)}
+                aria-label={`Bring ${member.name} back`}
+                title={`Bring ${member.name} back`}
+                className="flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: 'var(--bg-raised)', color: 'var(--optic-ink)' }}
+              >
+                <UserPlus size={14} />
+              </button>
+            ) : (
+              <>
+                {member.role === 'admin' ? (
+                  <button
+                    onClick={() => onRole(member, 'player')}
+                    disabled={adminCount <= 1}
+                    aria-label={`Remove ${member.name}'s admin`}
+                    title={
+                      adminCount <= 1
+                        ? 'A club needs at least one admin.'
+                        : `Remove ${member.name}'s admin`
+                    }
+                    className="flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-30"
+                    style={{ background: 'var(--bg-raised)', color: 'var(--gold-ink)' }}
+                  >
+                    <ShieldMinus size={14} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => onRole(member, 'admin')}
+                    aria-label={`Make ${member.name} an admin`}
+                    title={`Make ${member.name} an admin`}
+                    className="flex h-8 w-8 items-center justify-center rounded-full"
+                    style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
+                  >
+                    <ShieldPlus size={14} />
+                  </button>
+                )}
+                <button
+                  onClick={() => onRename(member)}
+                  aria-label={`Rename ${member.name}`}
+                  className="flex h-8 w-8 items-center justify-center rounded-full"
+                  style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
+                >
+                  <Pencil size={14} />
+                </button>
+                {/* Stepping back, not deleting. This is what somebody who moved
+                    away needs, and unlike a delete it costs them nothing. */}
+                <button
+                  onClick={() => onActive(member, false)}
+                  disabled={Boolean(blockedReason)}
+                  aria-label={`${member.name} is not playing any more`}
+                  title={blockedReason ?? `${member.name} is not playing any more`}
+                  className="flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-30"
+                  style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
+                >
+                  <UserMinus size={14} />
+                </button>
+              </>
+            )}
+            {member.role !== 'admin' && (
+              <button
+                onClick={() => onRemove(member)}
+                aria-label={`Delete ${member.name}`}
+                title={`Delete ${member.name} and everything they played`}
+                className="flex h-8 w-8 items-center justify-center rounded-full"
+                style={{ background: 'var(--bg-raised)', color: 'var(--clay)' }}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Invites only exist when there's a server to join, and you do not
+          invite yourself. Keyed off identity rather than role: once admin can
+          be shared, an admin who has not claimed a device still needs a code.
+          Not offered to somebody who has stepped back — there is nothing for
+          them to join right now. */}
+      {remote && isAdmin && !isYou && !inactive && (
+        <div className="pl-[42px]">
+          <InviteRow
+            member={member}
+            invite={invite}
+            clubName={clubName}
+            appUrl={appUrl}
+            onMint={onMint}
+            onRevoke={onRevoke}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** "Sunday Doubles" → "sunday-doubles", for a filename people can find again. */
 const slug = (name) =>
@@ -44,6 +185,9 @@ export default function ClubPage() {
   // utils/sessionState.js.
   const over = isSessionOver({ session, games });
   const reopenable = endedEarly({ session, games });
+  // Who is still playing, and who has stepped back. Inactive members keep
+  // every game and result they ever had — see utils/roster.js.
+  const { active, inactive } = splitRoster(members);
 
   /* ---------- club setup (first run) ---------- */
 
@@ -151,12 +295,44 @@ export default function ClubPage() {
     }
   };
 
+  /**
+   * Step somebody back from the roster, or bring them back.
+   *
+   * What people actually want when somebody moves away. Deleting them takes
+   * their fixtures and every score on them with it, which silently rewrites
+   * the standings of sessions played months ago; this costs them nothing.
+   */
+  const setActive = async (member, next) => {
+    if (!next) {
+      const ok = await confirmDialog({
+        title: `${member.name} is not playing any more?`,
+        message:
+          `They stay on the roster and keep every game and result they have ever had — ` +
+          `old sessions and standings do not change at all. They just will not be ` +
+          `picked for new sessions. You can bring them back whenever they turn up.`,
+        confirmLabel: 'Not playing',
+      });
+      if (!ok) return;
+    }
+    try {
+      await getBackend().setMemberActive(member.id, next);
+      await refresh();
+      toast(
+        next ? `${member.name} is back on the list.` : `${member.name} stepped back.`,
+        { type: next ? 'success' : 'info' }
+      );
+    } catch (err) {
+      toast(err.message ?? 'Could not change that.', { type: 'error' });
+    }
+  };
+
   const removePlayer = async (member) => {
     const ok = await confirmDialog({
-      title: `Remove ${member.name}?`,
+      title: `Delete ${member.name}?`,
       message:
-        'Their fixtures are removed too, along with any scores on them — standings will be recalculated without them. This cannot be undone.',
-      confirmLabel: 'Remove',
+        'Their fixtures go too, along with every score on them — the standings of sessions they played months ago will change. This cannot be undone. ' +
+        'If they have just stopped playing, use "not playing" instead: they keep everything and are only left out of new sessions.',
+      confirmLabel: 'Delete anyway',
       danger: true,
     });
     if (!ok) return;
@@ -517,14 +693,16 @@ export default function ClubPage() {
           )}
 
           {isAdmin && (
-            <Button variant="primary" full onClick={() => setSessionModal(true)} disabled={members.length < 2}>
+            <Button variant="primary" full onClick={() => setSessionModal(true)} disabled={active.length < 2}>
               <Play size={16} />
               {!session ? 'Start a session' : over ? 'Start the next session' : 'Start another session'}
             </Button>
           )}
-          {isAdmin && members.length < 2 && (
+          {isAdmin && active.length < 2 && (
             <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-              Add at least two players first.
+              {members.length < 2
+                ? 'Add at least two players first.'
+                : 'At least two players need to be playing. Bring somebody back from the list below.'}
             </p>
           )}
           {/* Without this the button is simply absent and nobody knows why. */}
@@ -543,7 +721,7 @@ export default function ClubPage() {
               className="font-sans text-[11px] font-bold uppercase tracking-wider"
               style={{ color: 'var(--text-lo)' }}
             >
-              Roster ({members.length})
+              Roster ({active.length})
             </h2>
             {isAdmin && (
               <button
@@ -557,97 +735,71 @@ export default function ClubPage() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            {members.map((m) => (
-              <div
+            {active.map((m) => (
+              <RosterRow
                 key={m.id}
-                className="flex flex-col gap-2"
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--line)',
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <Avatar member={m} size={30} />
-                  <Link to={`/players/${m.id}`} className="min-w-0 flex-1">
-                    <span className="block truncate font-sans text-sm font-semibold" style={{ color: 'var(--text-hi)' }}>
-                      {m.name}
-                    </span>
-                    <span className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-                      {m.role === 'admin' ? 'Admin' : 'Player'}
-                      {m.id === identity?.memberId ? ' · you' : ''}
-                    </span>
-                  </Link>
-                  {isAdmin && (
-                    <div className="flex shrink-0 gap-1">
-                      {m.role === 'admin' ? (
-                        <button
-                          onClick={() => setRole(m, 'player')}
-                          disabled={adminCount <= 1}
-                          aria-label={`Remove ${m.name}'s admin`}
-                          title={
-                            adminCount <= 1
-                              ? 'A club needs at least one admin.'
-                              : `Remove ${m.name}'s admin`
-                          }
-                          className="flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-30"
-                          style={{ background: 'var(--bg-raised)', color: 'var(--gold-ink)' }}
-                        >
-                          <ShieldMinus size={14} />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setRole(m, 'admin')}
-                          aria-label={`Make ${m.name} an admin`}
-                          title={`Make ${m.name} an admin`}
-                          className="flex h-8 w-8 items-center justify-center rounded-full"
-                          style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
-                        >
-                          <ShieldPlus size={14} />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => renamePlayer(m)}
-                        aria-label={`Rename ${m.name}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-full"
-                        style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      {m.role !== 'admin' && (
-                        <button
-                          onClick={() => removePlayer(m)}
-                          aria-label={`Remove ${m.name}`}
-                          className="flex h-8 w-8 items-center justify-center rounded-full"
-                          style={{ background: 'var(--bg-raised)', color: 'var(--clay)' }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Invites only exist when there's a server to join, and you do
-                    not invite yourself. Keyed off identity rather than role:
-                    once admin can be shared, an admin who has not claimed a
-                    device still needs a code. */}
-                {remote && isAdmin && m.id !== identity?.memberId && (
-                  <div className="pl-[42px]">
-                    <InviteRow
-                      member={m}
-                      invite={inviteFor(m.id)}
-                      clubName={club.name}
-                      appUrl={appUrl}
-                      onMint={mintInvite}
-                      onRevoke={revokeInvite}
-                    />
-                  </div>
-                )}
-              </div>
+                member={m}
+                isAdmin={isAdmin}
+                isYou={m.id === identity?.memberId}
+                adminCount={adminCount}
+                inactive={false}
+                blockedReason={deactivateBlockedReason(m, members)}
+                remote={remote}
+                clubName={club.name}
+                appUrl={appUrl}
+                invite={inviteFor(m.id)}
+                onRole={setRole}
+                onRename={renamePlayer}
+                onRemove={removePlayer}
+                onActive={setActive}
+                onMint={mintInvite}
+                onRevoke={revokeInvite}
+              />
             ))}
           </div>
+
+          {/* Everybody who has stepped back, below the line. Still here, still
+              tappable, still holding every result they ever had — just not
+              offered for the next session. */}
+          {inactive.length > 0 && (
+            <>
+              <div className="mt-3 flex items-center gap-3">
+                <h2
+                  className="font-sans text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: 'var(--text-lo)' }}
+                >
+                  Not playing ({inactive.length})
+                </h2>
+                <span className="h-px flex-1" style={{ background: 'var(--line)' }} />
+              </div>
+              <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
+                Left out of new sessions. Every game they played still counts.
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {inactive.map((m) => (
+                  <RosterRow
+                    key={m.id}
+                    member={m}
+                    isAdmin={isAdmin}
+                    isYou={m.id === identity?.memberId}
+                    adminCount={adminCount}
+                    inactive
+                    blockedReason={null}
+                    remote={remote}
+                    clubName={club.name}
+                    appUrl={appUrl}
+                    invite={inviteFor(m.id)}
+                    onRole={setRole}
+                    onRename={renamePlayer}
+                    onRemove={removePlayer}
+                    onActive={setActive}
+                    onMint={mintInvite}
+                    onRevoke={revokeInvite}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </section>
 
         {/* History */}

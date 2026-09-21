@@ -8,6 +8,7 @@ import {
 } from '../../utils/schedule.js';
 import { MIN_POOL_FIELD, QUALIFY_PER_POOL, poolName } from '../../utils/pools.js';
 import { defaultSessionName } from '../../utils/sessionName.js';
+import { splitRoster } from '../../utils/roster.js';
 import { BRACKET_SIZE, SHAPES, slotsForShape } from '../../utils/bracket.js';
 
 import ShapeChoice, { SHAPE_COPY } from './ShapeChoice.jsx';
@@ -109,7 +110,12 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   const [date, setDate] = useState(todayIso);
   const [startTime, setStartTime] = useState('');
   const [format, setFormat] = useState(settings.lastFormat);
-  const [picked, setPicked] = useState(() => new Set(members.map((m) => m.id)));
+  // Only the people still playing. Somebody who moved away should not have to
+  // be unticked every week. See utils/roster.js.
+  const [picked, setPicked] = useState(() => new Set(splitRoster(members).active.map((m) => m.id)));
+  // ...but a visitor back for one night can be added without an admin having
+  // to reactivate and then deactivate them again around the session.
+  const [showStepped, setShowStepped] = useState(false);
   const [numGames, setNumGames] = useState(settings.lastNumGames);
   const [courts, setCourts] = useState(settings.lastCourts);
   const [pointsTo, setPointsTo] = useState(settings.lastPointsTo);
@@ -126,8 +132,14 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   // it was on first render — anyone added afterwards would silently be left out
   // of the default selection.
   useEffect(() => {
-    if (open) setPicked(new Set(members.map((m) => m.id)));
+    if (open) setPicked(new Set(splitRoster(members).active.map((m) => m.id)));
   }, [open, members]);
+
+  // Forget the "show everyone" toggle between openings, so the sheet always
+  // starts from the people who are actually playing.
+  useEffect(() => {
+    if (open) setShowStepped(false);
+  }, [open]);
 
   // Forget a typed name when the sheet reopens: last week's "grudge match"
   // should not silently become this week's session name.
@@ -150,6 +162,16 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
       taken: sessions.map((s) => s.name),
     }),
     [date, format, startTime, sessions]
+  );
+
+  const roster = useMemo(() => splitRoster(members), [members]);
+  // Somebody stepped back stays on screen once they have been ticked, so an
+  // added visitor cannot vanish behind a toggle they are already part of.
+  const offered = useMemo(
+    () => (showStepped
+      ? members
+      : members.filter((m) => m.active !== false || picked.has(m.id))),
+    [members, showStepped, picked]
   );
 
   const playerIds = useMemo(
@@ -386,8 +408,9 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
             Who's playing ({playerIds.length})
           </span>
           <div className="flex flex-wrap gap-2">
-            {members.map((m) => {
+            {offered.map((m) => {
               const active = picked.has(m.id);
+              const stepped = m.active === false;
               return (
                 <button
                   key={m.id}
@@ -405,10 +428,31 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
                   <span className="font-sans text-[13px] font-semibold" style={{ color: 'var(--text-hi)' }}>
                     {m.name}
                   </span>
+                  {stepped && (
+                    <span
+                      className="font-sans text-[10px] font-bold uppercase tracking-wider"
+                      style={{ color: 'var(--text-lo)' }}
+                    >
+                      back
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
+
+          {/* The visitor case. Somebody who moved away and is in town for one
+              weekend can be added here without an admin having to reactivate
+              them and remember to step them back afterwards. */}
+          {roster.inactive.length > 0 && !showStepped && (
+            <button
+              onClick={() => setShowStepped(true)}
+              className="mt-2 font-sans text-xs font-semibold"
+              style={{ color: 'var(--optic-ink)' }}
+            >
+              + {roster.inactive.length} not playing at the moment
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col gap-4">
