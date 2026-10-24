@@ -1,6 +1,8 @@
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
-import { generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs } from '../utils/schedule.js';
+import {
+  generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs, normalisePasses,
+} from '../utils/schedule.js';
 import { roundRobinGames, knockoutGames, isKnockout, shapeOf } from '../utils/bracket.js';
 import { aggregate, isDecided } from '../utils/sets.js';
 import { randomSeed } from '../utils/rng.js';
@@ -283,12 +285,14 @@ export function createLocalBackend() {
 
     async createSession({
       name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs, teams,
+      rrPasses,
     }) {
       const club = await this.getClub();
       if (!club) throw new Error('Create a club first.');
 
       const usedSeed = seed ?? randomSeed();
       const sessionId = newId();
+      const passes = normalisePasses(rrPasses);
       const generated = generateSchedule({
         format,
         playerIds,
@@ -297,6 +301,7 @@ export function createLocalBackend() {
         seed: usedSeed,
         playoffs,
         teams,
+        passes,
       });
 
       const session = {
@@ -309,6 +314,7 @@ export function createLocalBackend() {
         playerIds,
         numGames: generated.length,
         courts,
+        rrPasses: passes,
         pointsTo,
         rngSeed: usedSeed,
         // What was generated, not what was asked for — a field too small for a
@@ -410,6 +416,9 @@ export function createLocalBackend() {
         // reshuffling a Page playoff must not quietly turn it into a knockout.
         playoffs: session.playoffs && (shapeOf(existing.games) ?? true),
         teams,
+        // Whatever the session was set up with. A reshuffle redraws the
+        // fixtures, it does not quietly halve the evening.
+        passes: normalisePasses(session.rrPasses),
       });
 
       const games = generated.map((g) => ({

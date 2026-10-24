@@ -614,7 +614,12 @@ export default function ClubPage() {
                   {/* Was hardcoded to Americano for every non-singles session,
                       so a fixed-pairs morning was labelled as the wrong format
                       on the one screen that sets it up. */}
-                  {formatLabel(session.format)} · {session.numGames} games · to {session.pointsTo}
+                  {[
+                    formatLabel(session.format),
+                    session.rrPasses > 1 ? `${session.rrPasses} times through` : null,
+                    `${session.numGames} games`,
+                    `to ${session.pointsTo}`,
+                  ].filter(Boolean).join(' · ')}
                 </p>
               </div>
               {/* Keyed on whether there is anything left to play, not on the

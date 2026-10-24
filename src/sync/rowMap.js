@@ -37,6 +37,9 @@ export function sessionFromRow(r) {
     playerIds: r.player_ids ?? [],
     numGames: r.num_games ?? 0,
     courts: r.courts ?? 1,
+    // Missing means one pass, so a session written before the column existed
+    // is exactly what it already was. See utils/schedule.js.
+    rrPasses: r.rr_passes ?? 1,
     pointsTo: r.points_to ?? 11,
     rngSeed: Number(r.rng_seed ?? 0),
     playoffs: Boolean(r.playoffs),
@@ -58,6 +61,7 @@ export function sessionToRow(s) {
     player_ids: s.playerIds ?? [],
     num_games: s.numGames ?? 0,
     courts: s.courts ?? 1,
+    rr_passes: s.rrPasses ?? 1,
     points_to: s.pointsTo ?? 11,
     rng_seed: s.rngSeed ?? 0,
     playoffs: Boolean(s.playoffs),

@@ -83,6 +83,10 @@ create table if not exists public.sessions (
   player_ids  uuid[] not null default '{}',
   num_games   int  not null default 0,
   courts      int  not null default 1 check (courts >= 1),
+  -- How many times the field goes through the round robin. Four players is six
+  -- games; a small field would rather play everyone twice. See
+  -- src/utils/schedule.js. Americano has its own games count and ignores this.
+  rr_passes   int  not null default 1 check (rr_passes between 1 and 5),
   points_to   int  not null default 11 check (points_to >= 1),
   -- The seed the schedule was generated from. Same seed, same schedule —
   -- see src/utils/rng.js. bigint because it is an unsigned 32-bit value.

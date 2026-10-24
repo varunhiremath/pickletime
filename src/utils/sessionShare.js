@@ -150,6 +150,9 @@ export function announcement({ session, games = [] } = {}) {
   const when = sessionWhen(session);
 
   const details = [formatLabel(session.format)];
+  // Worth saying in the group chat: "twice through" is why there are 24 games
+  // rather than 12, and it tells people how long to set aside.
+  if (session.rrPasses > 1) details.push(`${session.rrPasses} times through`);
   if (session.format !== 'singles' && session.numGames) {
     // Four players in fixed pairs is two teams and therefore one game, which
     // read as "1 games".

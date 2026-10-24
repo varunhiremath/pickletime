@@ -78,6 +78,14 @@ and because it uses `add column if not exists`, re-running it never resets
 somebody who has already stepped back. Re-running `schema.sql` does the same
 job. Admins already have unrestricted UPDATE on `members`, so no policy change.
 
+Going round the round robin more than once adds
+`supabase/migrate-rr-passes.sql`: an `rr_passes int not null default 1` column
+on `sessions`, checked to 1–5. Without it, **creating any session fails** with
+"column rr_passes does not exist" — every session writes the column, not only
+the ones asking for a second pass. Defaulting to 1 leaves every existing
+session exactly as it was, and re-running never resets one that asked for more.
+Re-running `schema.sql` does the same job.
+
 `supabase/backfill-session-names.sql` is **not** a migration — it is a one-off.
 Sessions name themselves from their date and format now, but ones created
 before that are still called "Session". Running it once gives them the names

@@ -14,6 +14,8 @@ const DEFAULTS = {
   lastNumGames: 8,
   lastCourts: 1,
   lastPointsTo: 11,
+  // How many times through the round robin. See utils/schedule.js.
+  lastPasses: 1,
 };
 
 const PERSISTED = Object.keys(DEFAULTS);
