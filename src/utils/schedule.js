@@ -39,6 +39,53 @@ export const isSinglesFormat = (format) =>
 /** How many pools a pooled session is drawn into. Two, which makes semifinals. */
 export const POOL_COUNT = 2;
 
+/**
+ * How many times a field can be sent through the round robin.
+ *
+ * Four players is six games, which is twenty minutes and then everyone stands
+ * about. Playing everyone twice or three times is what a small field actually
+ * does, and it is a better tournament than one pass: the table stops turning on
+ * a single bad game.
+ *
+ * Capped because the schedule is generated up front and somebody is going to
+ * hold the + button down.
+ */
+export const MAX_RR_PASSES = 5;
+
+/** Clamp whatever arrived into something generatable. */
+export const normalisePasses = (n) =>
+  Math.min(MAX_RR_PASSES, Math.max(1, Math.floor(Number(n) || 1)));
+
+/**
+ * Send the same fixture list through again, and again.
+ *
+ * Round numbers continue rather than restarting, so "Round 5" means one thing
+ * across the whole session and the Matches list stays in play order.
+ *
+ * Sides swap on every other pass. In a real double round robin you change ends,
+ * and here it means the second meeting does not render as a carbon copy of the
+ * first — the rematch reads as a rematch.
+ */
+export function repeatFixtures(fixtures, passes = 1) {
+  const n = normalisePasses(passes);
+  if (n === 1 || fixtures.length === 0) return fixtures;
+
+  const roundsPerPass = Math.max(...fixtures.map((f) => f.round));
+  const out = [];
+  for (let pass = 0; pass < n; pass++) {
+    const flip = pass % 2 === 1;
+    for (const f of fixtures) {
+      out.push({
+        round: f.round + pass * roundsPerPass,
+        a: flip ? f.b : f.a,
+        b: flip ? f.a : f.b,
+        sittingOut: f.sittingOut,
+      });
+    }
+  }
+  return out;
+}
+
 function makeGame({ ordinal, round, teamA, teamB, byes }) {
   return {
     ordinal,
@@ -106,11 +153,11 @@ export function circleMethod(entries) {
 }
 
 /**
- * Singles round robin: everyone plays everyone exactly once.
+ * Singles round robin: everyone plays everyone, `passes` times over.
  */
-export function generateSingles(playerIds) {
+export function generateSingles(playerIds, { passes = 1 } = {}) {
   let ordinal = 1;
-  return circleMethod(playerIds).map(({ round, a, b, sittingOut }) =>
+  return repeatFixtures(circleMethod(playerIds), passes).map(({ round, a, b, sittingOut }) =>
     makeGame({ ordinal: ordinal++, round, teamA: [a], teamB: [b], byes: sittingOut })
   );
 }
@@ -130,7 +177,7 @@ export function generateSingles(playerIds) {
  * than something that quietly differs between two phones looking at the same
  * session.
  */
-export function generatePools(playerIds, { seed = 1, poolCount = POOL_COUNT } = {}) {
+export function generatePools(playerIds, { seed = 1, poolCount = POOL_COUNT, passes = 1 } = {}) {
   if (playerIds.length < MIN_POOL_FIELD) return [];
 
   const drawn = shuffle(playerIds, mulberry32(seed));
@@ -139,7 +186,9 @@ export function generatePools(playerIds, { seed = 1, poolCount = POOL_COUNT } = 
   // cannot be filled and the format is not the one anybody agreed to.
   if (pools.some((p) => p.length <= QUALIFY_PER_POOL)) return [];
 
-  const perPool = pools.map((ids) => circleMethod(ids));
+  // Repeated per pool before the rounds are interleaved, so both pools are
+  // still playing their first pass at the same time as each other.
+  const perPool = pools.map((ids) => repeatFixtures(circleMethod(ids), passes));
   const lastRound = Math.max(0, ...perPool.flat().map((f) => f.round));
 
   const games = [];
@@ -177,14 +226,14 @@ export function generatePools(playerIds, { seed = 1, poolCount = POOL_COUNT } = 
  * Requires an even field: a leftover player would have nobody to partner, and
  * silently dropping them from their own session is worse than refusing.
  */
-export function generatePairs(playerIds, { seed = 1, teams: given = null } = {}) {
+export function generatePairs(playerIds, { seed = 1, teams: given = null, passes = 1 } = {}) {
   if (playerIds.length < 4 || playerIds.length % 2 === 1) return [];
 
   const teams = given ? normaliseTeams(given, playerIds) : drawTeams(playerIds, seed);
   if (teams.length < 2) return [];
 
   let ordinal = 1;
-  return circleMethod(teams).map(({ round, a, b, sittingOut }) =>
+  return repeatFixtures(circleMethod(teams), passes).map(({ round, a, b, sittingOut }) =>
     makeGame({
       ordinal: ordinal++,
       round,
@@ -405,14 +454,17 @@ export function generateSchedule({
   seed = 1,
   playoffs = false,
   teams = null,
+  // How many times the field goes through the round robin. Americano has its
+  // own games count and ignores this.
+  passes = 1,
 }) {
   const games =
     format === FORMATS.SINGLES
-      ? generateSingles(playerIds)
+      ? generateSingles(playerIds, { passes })
       : format === FORMATS.POOLS
-        ? generatePools(playerIds, { seed })
+        ? generatePools(playerIds, { seed, passes })
         : format === FORMATS.PAIRS
-          ? generatePairs(playerIds, { seed, teams })
+          ? generatePairs(playerIds, { seed, teams, passes })
           : generateAmericano(playerIds, { numGames, courts, seed });
 
   const shape = resolvePlayoffShape(format, playoffs);
@@ -485,17 +537,18 @@ export function assignCourts(games, courts = 1) {
 }
 
 /** Rough "how many games will each player get" for the setup screen. */
-export function gamesPerPlayer({ format, playerCount, numGames }) {
+export function gamesPerPlayer({ format, playerCount, numGames, passes = 1 }) {
   if (playerCount < 2) return 0;
-  if (format === FORMATS.SINGLES) return playerCount - 1;
+  const n = normalisePasses(passes);
+  if (format === FORMATS.SINGLES) return (playerCount - 1) * n;
   // In pools you only meet your own pool, which is the point: the smaller of
   // the two pools plays one fewer game, so this is the lower bound rather than
   // a number half the field would find wrong.
   if (format === FORMATS.POOLS) {
-    return Math.max(0, Math.floor(playerCount / POOL_COUNT) - 1);
+    return Math.max(0, Math.floor(playerCount / POOL_COUNT) - 1) * n;
   }
   // In fixed pairs you play every game your team plays, and your team meets
   // each of the other teams once.
-  if (format === FORMATS.PAIRS) return Math.max(0, Math.floor(playerCount / 2) - 1);
+  if (format === FORMATS.PAIRS) return Math.max(0, Math.floor(playerCount / 2) - 1) * n;
   return (numGames * 4) / playerCount;
 }

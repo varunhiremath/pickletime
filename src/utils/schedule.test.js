@@ -15,6 +15,9 @@ import {
   resolvePlayoffShape,
   rebuildPlayoffs,
   generatePools,
+  repeatFixtures,
+  normalisePasses,
+  MAX_RR_PASSES,
   isSinglesFormat,
   POOL_COUNT,
 } from './schedule.js';
@@ -693,5 +696,170 @@ describe('the pooled format end to end', () => {
     expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 8 })).toBe(3);
     expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 9 })).toBe(3);
     expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 16 })).toBe(7);
+  });
+});
+
+describe('normalisePasses', () => {
+  it('leaves a sensible number alone', () => {
+    expect(normalisePasses(1)).toBe(1);
+    expect(normalisePasses(3)).toBe(3);
+  });
+
+  it('clamps to at least one pass', () => {
+    expect(normalisePasses(0)).toBe(1);
+    expect(normalisePasses(-4)).toBe(1);
+  });
+
+  it('caps the schedule somebody held the + button on', () => {
+    expect(normalisePasses(99)).toBe(MAX_RR_PASSES);
+  });
+
+  it('copes with junk', () => {
+    expect(normalisePasses(undefined)).toBe(1);
+    expect(normalisePasses(null)).toBe(1);
+    expect(normalisePasses('nope')).toBe(1);
+    expect(normalisePasses(2.7)).toBe(2);
+  });
+});
+
+describe('repeatFixtures', () => {
+  const once = [
+    { round: 1, a: 'a', b: 'b', sittingOut: ['c'] },
+    { round: 2, a: 'a', b: 'c', sittingOut: ['b'] },
+    { round: 3, a: 'b', b: 'c', sittingOut: ['a'] },
+  ];
+
+  it('returns the same list for one pass', () => {
+    expect(repeatFixtures(once, 1)).toBe(once);
+  });
+
+  it('plays the whole card again', () => {
+    const twice = repeatFixtures(once, 2);
+    expect(twice).toHaveLength(6);
+  });
+
+  it('continues the round numbers rather than restarting', () => {
+    expect(repeatFixtures(once, 3).map((f) => f.round)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('swaps sides on the rematch, so it is not a carbon copy', () => {
+    const twice = repeatFixtures(once, 2);
+    expect([twice[0].a, twice[0].b]).toEqual(['a', 'b']);
+    expect([twice[3].a, twice[3].b]).toEqual(['b', 'a']);
+  });
+
+  it('swaps back on the third pass', () => {
+    const thrice = repeatFixtures(once, 3);
+    expect([thrice[6].a, thrice[6].b]).toEqual(['a', 'b']);
+  });
+
+  it('keeps the same pairs meeting the same number of times', () => {
+    const counts = new Map();
+    for (const f of repeatFixtures(once, 4)) {
+      const key = [f.a, f.b].sort().join('|');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    expect([...counts.values()]).toEqual([4, 4, 4]);
+  });
+
+  it('carries the byes across', () => {
+    expect(repeatFixtures(once, 2)[3].sittingOut).toEqual(['c']);
+  });
+
+  it('handles an empty card', () => {
+    expect(repeatFixtures([], 3)).toEqual([]);
+  });
+});
+
+describe('going round more than once', () => {
+  const field = (n) => Array.from({ length: n }, (_, i) => `p${i + 1}`);
+
+  it('doubles a singles round robin', () => {
+    expect(generateSingles(field(4))).toHaveLength(6);
+    expect(generateSingles(field(4), { passes: 2 })).toHaveLength(12);
+    expect(generateSingles(field(4), { passes: 3 })).toHaveLength(18);
+  });
+
+  it('still has everyone meeting everyone the same number of times', () => {
+    const games = generateSingles(field(5), { passes: 3 });
+    const counts = new Map();
+    for (const g of games) {
+      const key = [g.teamA[0], g.teamB[0]].sort().join('|');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    // 5 players = 10 pairings, each met three times.
+    expect(counts.size).toBe(10);
+    expect([...counts.values()].every((c) => c === 3)).toBe(true);
+  });
+
+  it('numbers the games from 1 with no gaps', () => {
+    const games = generateSingles(field(4), { passes: 3 });
+    expect(games.map((g) => g.ordinal)).toEqual(games.map((_, i) => i + 1));
+  });
+
+  it('rescues the smallest fixed-pairs session there is', () => {
+    // Four players is two teams: one game, and everybody goes home. Four
+    // passes makes it a session.
+    expect(generatePairs(field(4), { seed: 1 })).toHaveLength(1);
+    expect(generatePairs(field(4), { seed: 1, passes: 4 })).toHaveLength(4);
+  });
+
+  it('doubles each pool without interleaving them wrongly', () => {
+    const games = generatePools(field(8), { seed: 5, passes: 2 });
+    expect(games).toHaveLength(24);
+    const pools = poolsOf(games);
+    expect(pools).toHaveLength(2);
+    const poolOf = new Map();
+    pools.forEach((p) => p.ids.forEach((id) => poolOf.set(id, p.name)));
+    // Still nobody crosses pools, however many times they go round.
+    for (const g of games) {
+      expect(poolOf.get(g.teamA[0])).toBe(poolOf.get(g.teamB[0]));
+    }
+  });
+
+  it('keeps both pools in step: round 1 has a game from each', () => {
+    const games = generatePools(field(8), { seed: 5, passes: 2 });
+    const pools = poolsOf(games);
+    const poolOf = new Map();
+    pools.forEach((p) => p.ids.forEach((id) => poolOf.set(id, p.name)));
+    for (const round of [1, 4]) {
+      const inRound = games.filter((g) => g.round === round);
+      expect(new Set(inRound.map((g) => poolOf.get(g.teamA[0]))).size).toBe(2);
+    }
+  });
+
+  it('puts the playoffs after every pass, not after the first', () => {
+    const games = generateSchedule({
+      format: FORMATS.SINGLES, playerIds: field(4), seed: 2, playoffs: true, passes: 3,
+    });
+    expect(games.filter((g) => g.stage === 'rr')).toHaveLength(18);
+    const ko = games.filter((g) => g.stage !== 'rr');
+    expect(ko).toHaveLength(4);
+    // Every knockout fixture comes after every round-robin one.
+    const lastRr = Math.max(...games.filter((g) => g.stage === 'rr').map((g) => g.ordinal));
+    expect(Math.min(...ko.map((g) => g.ordinal))).toBeGreaterThan(lastRr);
+  });
+
+  it('leaves Americano alone — it has its own games count', () => {
+    const a = generateSchedule({
+      format: FORMATS.AMERICANO, playerIds: field(4), numGames: 6, seed: 1, passes: 3,
+    });
+    expect(a.filter((g) => g.stage === 'rr')).toHaveLength(6);
+  });
+
+  it('counts the games per player correctly', () => {
+    expect(gamesPerPlayer({ format: FORMATS.SINGLES, playerCount: 4, passes: 3 })).toBe(9);
+    expect(gamesPerPlayer({ format: FORMATS.PAIRS, playerCount: 8, passes: 2 })).toBe(6);
+    expect(gamesPerPlayer({ format: FORMATS.POOLS, playerCount: 8, passes: 2 })).toBe(6);
+    // Unchanged when nobody asked for more.
+    expect(gamesPerPlayer({ format: FORMATS.SINGLES, playerCount: 4 })).toBe(3);
+  });
+
+  it('is reproducible, and the draw is the same whatever the pass count', () => {
+    const a = generatePools(field(9), { seed: 8, passes: 1 });
+    const b = generatePools(field(9), { seed: 8, passes: 2 });
+    const poolsA = poolsOf(a).map((p) => p.ids.slice().sort().join());
+    const poolsB = poolsOf(b).map((p) => p.ids.slice().sort().join());
+    expect(poolsB).toEqual(poolsA);
   });
 });

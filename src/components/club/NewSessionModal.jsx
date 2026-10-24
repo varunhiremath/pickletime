@@ -4,7 +4,7 @@ import Button from '../ui/Button.jsx';
 import { Avatar } from '../scoreboard/PlayerChip.jsx';
 import {
   FORMATS, gamesPerPlayer, canRunPlayoffs, playoffShape,
-  playoffShapesFor, resolvePlayoffShape, POOL_COUNT,
+  playoffShapesFor, resolvePlayoffShape, POOL_COUNT, MAX_RR_PASSES,
 } from '../../utils/schedule.js';
 import { MIN_POOL_FIELD, QUALIFY_PER_POOL, poolName } from '../../utils/pools.js';
 import { defaultSessionName } from '../../utils/sessionName.js';
@@ -117,6 +117,9 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   // to reactivate and then deactivate them again around the session.
   const [showStepped, setShowStepped] = useState(false);
   const [numGames, setNumGames] = useState(settings.lastNumGames);
+  // How many times the field goes through the round robin. Four players is six
+  // games, which is twenty minutes and then everyone stands about.
+  const [passes, setPasses] = useState(settings.lastPasses ?? 1);
   const [courts, setCourts] = useState(settings.lastCourts);
   const [pointsTo, setPointsTo] = useState(settings.lastPointsTo);
   const [playoffs, setPlayoffs] = useState(true);
@@ -219,7 +222,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   const teamCount = Math.floor(playerIds.length / 2);
 
   const perPlayer = enough
-    ? gamesPerPlayer({ format, playerCount: playerIds.length, numGames })
+    ? gamesPerPlayer({ format, playerCount: playerIds.length, numGames, passes })
     : 0;
 
   const playoffsAvailable = canRunPlayoffs({ format, playerCount: playerIds.length });
@@ -234,7 +237,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
   const poolGameCount = (() => {
     const big = Math.ceil(playerIds.length / POOL_COUNT);
     const small = Math.floor(playerIds.length / POOL_COUNT);
-    return (big * (big - 1)) / 2 + (small * (small - 1)) / 2;
+    return ((big * (big - 1)) / 2 + (small * (small - 1)) / 2) * passes;
   })();
 
   const toggle = (id) => {
@@ -254,6 +257,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
         lastNumGames: numGames,
         lastCourts: Math.min(courts, maxCourts),
         lastPointsTo: pointsTo,
+        lastPasses: passes,
       });
       await onCreate({
         name: name.trim() || autoName,
@@ -267,6 +271,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
         // The shape, not just a boolean: generateSchedule falls back to the
         // format's default if this one does not apply to it.
         playoffs: wantsPlayoffs && (resolvePlayoffShape(format, shape) ?? true),
+        rrPasses: passes,
         teams: format === FORMATS.PAIRS ? teams : undefined,
       });
       onClose();
@@ -474,6 +479,23 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
             max={maxCourts}
             hint={maxCourts === 1 ? 'One game at a time with this many players' : 'Games run at the same time'}
           />
+          {/* Americano already asks how many games it should build, so a
+              second count of the same thing would be two answers to one
+              question. */}
+          {format !== FORMATS.AMERICANO && (
+            <Stepper
+              label="Times through"
+              value={passes}
+              onChange={setPasses}
+              min={1}
+              max={MAX_RR_PASSES}
+              hint={
+                passes === 1
+                  ? 'Everyone plays everyone once'
+                  : `Everyone plays everyone ${passes} times`
+              }
+            />
+          )}
           <Stepper label="Points to" value={pointsTo} onChange={setPointsTo} min={1} max={31} />
         </div>
 
@@ -561,11 +583,11 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
 
         {format === FORMATS.SINGLES && enough && (
           <p className="font-sans text-xs" style={{ color: 'var(--text-lo)' }}>
-            A full round robin is{' '}
+            {passes === 1 ? 'A full round robin is' : `${passes} times through is`}{' '}
             <strong style={{ color: 'var(--text-hi)' }}>
-              {(playerIds.length * (playerIds.length - 1)) / 2} games
+              {((playerIds.length * (playerIds.length - 1)) / 2) * passes} games
             </strong>{' '}
-            — {playerIds.length - 1} each
+            — {perPlayer} each
             {wantsPlayoffs ? `, plus ${playoffGames} playoff games` : ''}.
           </p>
         )}
@@ -582,7 +604,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
             playing{' '}
             <strong style={{ color: 'var(--text-hi)' }}>{poolGameCount} games</strong>
             {wantsPlayoffs ? ` plus ${playoffGames} playoff games` : ''} — against{' '}
-            {(playerIds.length * (playerIds.length - 1)) / 2} for one big round robin. The pools
+            {((playerIds.length * (playerIds.length - 1)) / 2) * passes} for one big round robin. The pools
             are drawn at random when you generate, and you can redraw them from the Club tab
             until someone scores.
           </p>
@@ -597,7 +619,7 @@ export default function NewSessionModal({ open, onClose, members, sessions = [],
             ) : enough ? (
               <>
                 <strong style={{ color: 'var(--text-hi)' }}>{teamCount} teams</strong> playing{' '}
-                {(teamCount * (teamCount - 1)) / 2} games
+                {((teamCount * (teamCount - 1)) / 2) * passes} games
                 {wantsPlayoffs ? ` plus ${playoffGames} playoff games` : ''}. Partners are fixed all session —
                 you can change the teams from the Club tab until someone scores.
               </>

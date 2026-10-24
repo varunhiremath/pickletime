@@ -38,7 +38,7 @@ when someone deep-links to Courtside.
 | File | Exports |
 | --- | --- |
 | `rng.js` | `mulberry32`, `seedFromString`, `randomSeed`, `shuffle` — seeded RNG so schedules are reproducible. |
-| `schedule.js` | `FORMATS`, `isTeamFormat`, `circleMethod`, `generateSingles`, `generatePairs`, `generateAmericano`, `generateSchedule`, `rebuildPlayoffs`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `playoffShapesFor`, `resolvePlayoffShape`, `canRunPlayoffs`. |
+| `schedule.js` | `FORMATS`, `isTeamFormat`, `isSinglesFormat`, `circleMethod`, `repeatFixtures`, `normalisePasses`, `MAX_RR_PASSES`, `generateSingles`, `generatePairs`, `generatePools`, `generateAmericano`, `generateSchedule`, `rebuildPlayoffs`, `assignCourts`, `gamesPerPlayer`, `playoffShape`, `playoffShapesFor`, `resolvePlayoffShape`, `canRunPlayoffs`. |
 | `entrants.js` | `teamKey`, `teamsFromGames`, `sessionEntrants`, `gamesByEntrant`, `entrantSize` — who is being ranked. |
 | `teamDraft.js` | `unpaired`, `isComplete`, `tapPlayer`, `breakTeam`, `fillRemaining`, `drawAll`, `pruneToField`, `draftStatus` — the state machine behind picking teams by hand. |
 | `bracket.js` | `STAGE`, `SLOT`, `SHAPES`, `BRACKET_SLOTS`, `PAGE_SLOTS`, `FINAL_ONLY_SLOTS`, `slotsForShape`, `shapeOf`, `isRoundRobin`/`isKnockout`, `roundRobinGames`/`knockoutGames`, `outcome`, `buildBracketGames`, `resolveBracket`, `slotLabel`/`slotShortLabel`. |
@@ -345,6 +345,31 @@ They are simply not offered for the next one.
 
 Delete still exists for a genuine mistake, and its confirm now points at the
 gentler option first.
+
+## Going round more than once
+
+Four players is six games, which is twenty minutes and then everyone stands
+about. `sessions.rr_passes` (1–5) sends the field through the round robin again:
+**Times through** in the setup sheet, and the single thing that rescues a small
+field. It is also a better tournament either way — the table stops turning on
+one bad game.
+
+`repeatFixtures()` does the work, on the output of `circleMethod()` and before
+anything is turned into a game:
+
+- **Round numbers continue** rather than restarting, so "Round 5" means one
+  thing across the session and the Matches list stays in play order.
+- **Sides swap on every other pass.** In a real double round robin you change
+  ends, and here it means the rematch does not render as a carbon copy.
+- Pools repeat **per pool before the rounds are interleaved**, so both pools are
+  still on their first pass at the same time as each other.
+- Americano ignores it: it already asks how many games to build, and a second
+  count of the same thing would be two answers to one question.
+
+> **Stored, not derived** — unlike the pools. It is a setup choice in the same
+> family as `courts` and `points_to`, and `regenerateSchedule` has to know what
+> was asked for. Counting the fixtures back would guess wrong the moment
+> somebody is removed from the draw.
 
 ## Pools
 

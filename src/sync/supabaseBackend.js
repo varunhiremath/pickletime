@@ -1,7 +1,9 @@
 import { supabase, ensureSignedIn, currentUserId } from './supabaseClient.js';
 import { db, getMeta, setMeta, clearLocalData } from '../db/db.js';
 import { CONNECTION, ROLES, SESSION_STATUS } from './backend.js';
-import { generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs } from '../utils/schedule.js';
+import {
+  generateSchedule, rebuildPlayoffs, resolvePlayoffShape, canRunPlayoffs, normalisePasses,
+} from '../utils/schedule.js';
 import { roundRobinGames, knockoutGames, shapeOf } from '../utils/bracket.js';
 import { randomSeed } from '../utils/rng.js';
 import { uuid } from '../utils/uuid.js';
@@ -548,14 +550,16 @@ export function createSupabaseBackend() {
 
     async createSession({
       name, date, startTime, format, playerIds, numGames, courts, pointsTo, seed, playoffs, teams,
+      rrPasses,
     }) {
       const clubId = await requireClubId();
       const { memberId } = await loadIdentity();
 
       const usedSeed = seed ?? randomSeed();
       const sessionId = newId();
+      const passes = normalisePasses(rrPasses);
       const generated = generateSchedule({
-        format, playerIds, numGames, courts, seed: usedSeed, playoffs, teams,
+        format, playerIds, numGames, courts, seed: usedSeed, playoffs, teams, passes,
       });
       const wantsPlayoffs = generated.some((g) => g.stage !== 'rr');
 
@@ -569,6 +573,7 @@ export function createSupabaseBackend() {
         playerIds,
         numGames: generated.length,
         courts,
+        rrPasses: passes,
         pointsTo,
         rngSeed: usedSeed,
         // Recorded from what was actually generated, not from what was asked
@@ -668,6 +673,9 @@ export function createSupabaseBackend() {
         // reshuffling a Page playoff must not quietly turn it into a knockout.
         playoffs: session.playoffs && (shapeOf(existing.games) ?? true),
         teams,
+        // Whatever the session was set up with. A reshuffle redraws the
+        // fixtures, it does not quietly halve the evening.
+        passes: normalisePasses(session.rrPasses),
       });
 
       unwrap(await supabase.from('games').delete().eq('session_id', sessionId));
